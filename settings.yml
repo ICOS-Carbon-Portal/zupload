@@ -1,21 +1,28 @@
-reason: fluxcom-nee
+# The reason
+# [cte-hr, fluxcom-et, fluxcom-et-t, fluxcom-gpp, fluxcom-nee, stilt-docs, ...]
+reason: "cte-hr"
 
-archive_files: false
-try_ingest: false
-archive_json: false
-upload_meta_data: true
-upload_data: true
-
-upload_to_production: true
-
-master_dir: "archives/fluxcom-nee"
-archive_path: "archives/fluxcom-nee/archive.json"
-json_standalone_files: "archives/fluxcom-nee/json-standalone-files/"
-json_collection_standalone_files: "archives/fluxcom-nee/json-collection-standalone-files/"
-
-data_dir: "/home/zois/ftp.bgc-jena.mpg.de/outgoing/uweber/FLUXCOM-X/NEE/."
+# Where is your data?
+data_dir: "/home/zois/Downloads/cte-hr/"
 pattern: "*"
 
+# The critical part ###################
+archive_files: true
+try_ingest: false
+archive_json: true
+
+upload_to_production: true
+upload_meta_data: true
+upload_data: false
+#######################################
+
+# Where do you want your metadata?
+master_dir: "archives/cte-hr"
+archive_path: "archives/cte-hr/archive.json"
+json_standalone_files: "archives/cte-hr/json-standalone-files/"
+json_collection_standalone_files: "archives/cte-hr/json-collection-standalone-files/"
+
+# Show and tell
 previous_collection: null
 try_ingest_subprocesses: 1
 show_input_files: true
@@ -24,6 +31,5 @@ show_progress_try_ingest: true
 show_progress_archive_json: true
 show_progress_upload_meta_data: true
 show_progress_upload_data: true
-
 overwrite_archive: true
 

@@ -4,18 +4,14 @@ from multiprocessing import Pool
 from typing import Any
 from pathlib import Path
 import re
-
-
 # Related third party imports.
 from icoscp_core import icos
 import requests
-
 # Local application/library specific imports.
-from settings import Settings
 from constants.icons import ICON_CHECK
 from constants.endpoints import METADATA_UPLOAD_URL, \
     METASTAGING_UPLOAD_URL
-from rename_specs import YamlSettings
+from settings import YamlSettings
 from json_manager import read_json, write_json
 import exiter
 import utils
@@ -105,7 +101,7 @@ class PortalInteractor:
 
     def try_ingest(self) -> None:
         """Tests ingestion of provided files to the Carbon Portal."""
-        # Todo: Fix the way try_ingest() outputs stuff.W
+        # Todo: Fix the way try_ingest() outputs stuff.
         print(f'- Trying ingestion of files (This might take a while...)')
         subprocesses = self.settings.try_ingest_subprocesses
         archive = read_json(self.settings.archive_path)
@@ -221,9 +217,9 @@ def get_cte_hr_collections(interval: str) -> dict[str, str]:
     return collections
 
 
-def get_meta(landing_page: str) -> Any:
+def get_meta(uri: str) -> Any:
     """Returns metadata for a landing page"""
-    json_url = f"{landing_page}/easter_egg.json"
+    json_url = f"{uri}/easter_egg.json"
     response = utils.handle_request(request='get', args={"url": json_url})
     return response.json()
 

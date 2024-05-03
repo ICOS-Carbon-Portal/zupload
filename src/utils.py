@@ -1,13 +1,26 @@
 # Standard library imports.
 from typing import Optional, Any
 from http.cookiejar import CookieJar
-
 # Related third party imports.
-from icoscp_core import icos
+from icoscp_core import icos, auth
+from icoscp_core.envri import ICOS_CONFIG
 import requests
 from requests.utils import cookiejar_from_dict
-
 # Local application/library specific imports.
+
+
+def cp_auth() -> None:
+    exception_msgs = ['Config file does not exist',
+                      'Incorrect user name or password']
+    try:
+        icos.auth.get_token()
+    except Exception as e:
+        if any(msg in str(e) for msg in exception_msgs):
+            icos.auth.init_config_file()
+        else:
+            print(e)
+    icos.auth.get_token()
+    return
 
 
 def get_cookie_jar() -> Optional[CookieJar]:
@@ -114,6 +127,8 @@ def handle_request(request: str, args: dict[Any, Any]) -> requests.Response:
             response = requests.put(**args)
         elif request == "post":
             response = requests.post(**args)
+        elif request == "head":
+            response = requests.head(**args)
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
         pass

@@ -1,7 +1,8 @@
 from file_manager import FileManager
-from json_manager import JsonManager, get_previous_version
+from json_manager import JsonManager
 from portal_interactor import PortalInteractor
 from settings import Settings
+
 
 settings = Settings().settings
 file_manager = FileManager(settings)
@@ -19,6 +20,8 @@ portal_interactor.upload_metadata() if settings.upload_meta_data \
 portal_interactor.upload_data() if settings.upload_data \
     else print(f"- Skipping uploading of data.")
 json_manager.show_uploads()
+
+
 
 
 # coll_1 = "https://meta.icos-cp.eu/collections/R4FivCqCR62RruN3mvh5dG2b"

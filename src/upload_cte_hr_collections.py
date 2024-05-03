@@ -20,11 +20,14 @@ from icoscp_core import icos
 # Todo: DO NOT DELETE THIS CODE BLOCK, it is meant to be integrated
 #  somehow.
 #  1. Make the necessary changes to the script below to upload the
-#     new monthly 5-component collection.
-#  2. Use the uploadgui afterwards to manually upload the new yearly
+#     new monthly 5-component collection. Variables that you need to
+#     change: file_path, "key", "members".
+#  2. Use the uploadgui afterward to manually upload the new yearly
 #     version. For example deprecate the yearly 2023 collection that
 #     includes months 01-09 with a yearly 2023 collection that
 #     includes months 01-10.
+#     Current yearly collection:
+#       https://meta.icos-cp.eu/collections/OOnTso4mHsIdCcBtnuLEwsyj
 #  3. Use the uploadgui to deprecate the full collection found here
 #     https://doi.org/10.18160/20Z1-AYJ2 by replacing the newly
 #     uploaded yearly collection (2023 (01-10)) or by appending the
@@ -33,15 +36,15 @@ from icoscp_core import icos
 #  4. Update the target url of the doi to the newly uploaded full
 #     collection.
 # settings = Settings().settings
-# file_path = Path(settings.json_collection_standalone_files, f"202310.json")
+# file_path = Path(settings.json_collection_standalone_files, f"202401.json")
 # json_content = make_monthly_cte_hr_collection(collection=dict({
-#     "key": "202310",
+#     "key": "202401",
 #     "members": [
-#         "https://meta.icos-cp.eu/objects/y5EWtWgVT69nN6iyx4c3su7s",
-#         "https://meta.icos-cp.eu/objects/ILelQyE6H9OKdqdOHAAito2C",
-#         "https://meta.icos-cp.eu/objects/ow_JOQLEGh4NK7fqwx--ULV7",
-#         "https://meta.icos-cp.eu/objects/iODrZIgv5bBibTlaE2rfdiRR",
-#         "https://meta.icos-cp.eu/objects/4AJm1DYzQ23DPD-JbNZt08rM"
+#         "https://meta.icos-cp.eu/objects/LfA0696zOGsuFn9zSggKTiUO",
+#         "https://meta.icos-cp.eu/objects/cgmpx-AePxIWUR7ZjUQaSQDG",
+#         "https://meta.icos-cp.eu/objects/Yt_noQmP_tEkELp7jXPX0yqh",
+#         "https://meta.icos-cp.eu/objects/LbmHhWRZUBAtW4o3T2tIDq9n",
+#         "https://meta.icos-cp.eu/objects/3dCeGenr_ewGbHShCB149WD8"
 #     ],
 #     # "isNextVersionOf": "mplampla"
 # }))

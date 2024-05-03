@@ -1,4 +1,53 @@
-# Before you run anything MAKE SURE to update the file settings.yml
+# Quickstart
+- **Edit the settings.yml file.** Click [here](#yaml-settings) for a detailed 
+explanation of each settings field. 
+
+# Settings
+- `reason`: The value of this setting is a vital one for running the application.
+It determines both the method of metadata population and serves as the name for
+the parent directory housing all application-generated output. 
+Valid usable reasons: [cte-hr, fluxcom-et, fluxcom-et-t, fluxcom-gpp, 
+fluxcom-nee, stilt-docs, ...] 
+- **The following five settings, control the five stages of the application; 
+namely archiving files, trying ingestion of files, archiving JSON metadata, 
+uploading metadata and uploading data.**
+  1. `archive_files` (true or false): Controls whether the application will store
+  the following information about the input data files:
+     - file path
+     - file name
+     - dataset type (also related to reason)
+     - dataset object specification (also related to reason)
+     - try-ingest components (also related to dataset object specification)
+
+     _Setting it to false for repeated identical data input runs boosts 
+     runtime._
+  2. `try_ingest` (true or false): Controls whether the application will try 
+  ingestion of all the input data on the data portal. This can be a very 
+  time-consuming step, depending on the size of the input data files. 
+  Components for the try-ingestion command, gathered during the archive_files 
+  step (try-ingest components), are assembled and executed here.   
+  _Setting it to false for repeated identical data input runs can drastically
+  improve runtime._
+  3. `archive_json` (true or false): Controls whether the application will
+  populate and store metadata for each input data file. The content of the
+  metadata, in JSON format, varies based on the specified reason. This step 
+  will produce actual .json files which will be used for the next step
+  (upload_meta_data).  
+  **Be aware! Any changes to the production of the metadata in the code (e.g.: 
+  Adding some text in the title or description) require this step to be rerun 
+  -> `archive_json: true`.**  
+  _Setting it to false for repeated identical data input runs can drastically 
+  improve runtime. Users can also set this to false if the generated metadata
+  was correct, but something went wrong during the next steps (meta_data_upload
+  or data_upload)._
+  4. `upload_to_production` (true or false): Controls whether the metadata
+  package will be posted to https://metastaging.icos-cp.eu/ (testing) or
+  https://meta.icos-cp.eu/ (production).
+  5. `upload_meta_data` (true or false): Controls the upload of the generated 
+  .json files to the data portal.
+  6. `upload_data` (true or false): Controls the upload of the input data
+  files to the data portal.
+- `master_dir`:...
 
 # Guidelines for meta-data needed for upload.
 *Most of the specifications of the meta-data below already exist in the file
@@ -92,4 +141,4 @@ services.
 "user" if no other option is provided.
 
 <hr>
-Credits to: Oleg Mirzov, Ute Karstens, Margareta Hellström 
+Credits to: Oleg Mirzov, Ute Karstens, Maggie Hellström 

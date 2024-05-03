@@ -49,7 +49,7 @@ def exit_zupload(info: Optional[dict[Any, Any]] = None,
             content = "\n\t".join(content)
             exit_message = (
                 f"\tError while trying-ingestion of file "
-                f"{info['file_name']}.\n"
+                f"{info['file_name']}\n"
                 f"\tStatus code: {info['status_code']}\n"
                 f"\t***\n"
                 f"\t{content}\n"
