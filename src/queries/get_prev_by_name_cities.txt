@@ -1,0 +1,13 @@
+prefix cpmeta: <http://meta.icos-cp.eu/ontologies/cpmeta/>
+prefix xsd: <http://www.w3.org/2001/XMLSchema#>
+
+select ?dobj ?hasNextVersion ?fileName ?size
+where {
+	?dobj cpmeta:hasName ?fileName .
+ 	FILTER(REGEX(?fileName, "^#anchor$", "i"))
+	FILTER(STRSTARTS(str(?spec), "https://citymeta.icos-cp.eu/"))
+  	FILTER NOT EXISTS {?spec cpmeta:hasAssociatedProject/cpmeta:hasHideFromSearchPolicy "true"^^xsd:boolean}
+  	?dobj cpmeta:hasObjectSpec ?spec .
+  	BIND(EXISTS{[] cpmeta:isNextVersionOf ?dobj} AS ?hasNextVersion)
+  	FILTER NOT EXISTS {[] cpmeta:isNextVersionOf ?dobj}
+}

@@ -1,21 +1,20 @@
 # Standard library imports.
-from typing import Tuple, Any
+from typing import Any, Collection, Tuple
 import json
 from pathlib import Path, PosixPath
 import re
-
 # Related third party imports.
 import xarray
-
-import exiter
 # Local application/library specific imports.
-from constants import endpoints as ce
+from constants.colors import Colors as c
+import exiter
+from constants import envri
 from constants import general_settings as cgs
 from constants import icons as ci
 from exiter import exit_zupload
 from json_manager import write_json
 from settings import YamlSettings
-import meta_tools
+from meta_tools import get_spec
 
 
 class FileManager:
@@ -25,8 +24,9 @@ class FileManager:
         self.input_data = self.retrieve_input_files()
 
     def retrieve_input_files(self) -> Tuple[PosixPath]:
-        print(f"- Retrieving data files using: \"{self.settings.data_dir}"
-              f"{self.settings.pattern}\"")
+        text = f'- Retrieving data files using: "{self.settings.data_dir}/' \
+               f'{self.settings.pattern}"'
+        print(c.color_text(text, c.HEADER, c.BOLD))
         pathlib_files = list(Path(self.settings.data_dir).
                              glob(pattern=self.settings.pattern))
         found_files, file_info = zip(
@@ -38,11 +38,12 @@ class FileManager:
         self.maybe_show_input_files(file_info, len(found_files))
         return found_files
 
-    def archive_files(self) -> str | None:
-        print('- Archiving system information')
+    def archive_files(self) -> None:
+        text = f'- Archiving system information'
+        print(c.color_text(text, c.HEADER, c.BOLD))
         archive_out = dict()
         for file in self.input_data:
-            dataset_type, dataset_object_spec = meta_tools.get_spec(file.name)
+            ds_type, ds_obj_spec = get_spec(self.settings.reason, file.name)
             archive_out[file.stem] = {
                 # Todo: replace every occurrence of trying to access
                 #  file_name or suffix or whatever with:
@@ -50,10 +51,10 @@ class FileManager:
                 'file_path': file,
                 'file_name': file.name,
                 'suffix': file.suffix,
-                'dataset_type': dataset_type,
-                'dataset_object_spec': dataset_object_spec,
-                'try_ingest_components': build_try_ingest(
-                    str(file.resolve()), dataset_object_spec)
+                'dataset_type': ds_type,
+                'dataset_object_spec': ds_obj_spec,
+                'try_ingest_components': self.build_try_ingest(
+                    str(file.resolve()), ds_obj_spec)
             }
             # Todo: Edit this for each new dataset type.
             if self.settings.reason in ["cte-hr", "cte-hr-202306"]:
@@ -74,6 +75,7 @@ class FileManager:
             exiter.exit_zupload()
         # Todo: "Refactor this" ends here.
         self.maybe_save_archive(archive_out)
+        return
 
     def maybe_show_input_files(self, file_info: tuple[str], total_files: int)\
             -> None:
@@ -94,34 +96,42 @@ class FileManager:
             write_json(self.settings.archive_path, archive)
         return
 
+    def build_try_ingest(self, file_path: str, dataset_object_spec: str)\
+            -> dict[str, Collection[str]]:
+        """Build the try-ingest command for each data file."""
+        try:
+            xarray_dataset = xarray.open_dataset(file_path)
+        except ValueError as e:
+            print(e)
+            variables = None
+        else:
+            variable_list = list(
+                variable for variable in xarray_dataset.data_vars
+                if variable not in cgs.EXCLUDED_VARIABLES
+            )
+            # The variable list must be formatted like this:
+            # '["variable_1", "variable_2", ...]'
+            # Formatting like this e.g:
+            # "['variable_1', 'variable_2', ...]"
+            # will probably result in a try ingest error.
+            # This is why we use json.dumps,
+            # to create a specifically formatted string.
+            variables = f"{json.dumps(variable_list)}"
 
-def build_try_ingest(file_path: str, dataset_object_spec: str)\
-        -> dict[str, str]:
-    """Build the try-ingest command for each data file."""
-    try:
-        xarray_dataset = xarray.open_dataset(file_path)
-    except ValueError as e:
-        variables = None
-    else:
-        variable_list = list(
-            variable for variable in xarray_dataset.data_vars
-            if variable not in cgs.EXCLUDED_VARIABLES
-        )
-        # The variable list must be formatted like this:
-        # '["variable_1", "variable_2", ...]'
-        # Formatting like this e.g:
-        # "['variable_1', 'variable_2', ...]"
-        # will probably result in a try ingest error.
-        # This is why we use json.dumps,
-        # to create a specifically formatted string.
-        variables = f"{json.dumps(variable_list)}"
-    try_ingest_url = ce.CP_TRY_INGEST
-    params = dict({"specUri": dataset_object_spec,
-                   "varnames": variables})
-    try_ingest_components = {"url": try_ingest_url,
-                             "params": params,
-                             "file_path": file_path}
-    return try_ingest_components
+        try_ingest_url = str()
+        if self.settings.portal == 'icos':
+            try_ingest_url = envri.ICOS_CONFIG.try_ingest_url
+        elif self.settings.portal == 'cities':
+            try_ingest_url = envri.CITIES_CONFIG.try_ingest_url
+        else:
+            exiter.exit_zupload(info={'msg': 'Not implemented yet.'})
+
+        params = dict({"specUri": dataset_object_spec,
+                       "varnames": variables})
+        try_ingest_components = {"url": try_ingest_url,
+                                 "params": params,
+                                 "file_path": file_path}
+        return try_ingest_components
 
 
 # def validate_json(path: str = None, json_data: str = None):

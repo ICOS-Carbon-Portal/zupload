@@ -1,12 +1,14 @@
-CTE_HR_MONTHLY_DESCRIPTION = \
-    "constants/static_meta/cte_hr_monthly_description.txt"
-CTE_HR_YEARLY_DESCRIPTION = \
-    "constants/static_meta/cte_hr_yearly_description.txt"
-CTE_HR_FULL_DESCRIPTION = \
-    "constants/static_meta/cte_hr_full_description.txt"
-FLUXCOM_YEARLY_DESCRIPTION = \
-    "constants/static_meta/fluxcom_yearly_description.txt"
-FLUXCOM_ALL_YEARS_PER_VAR_DESCRIPTION = \
-    "constants/static_meta/fluxcom_all_years_per_var_description.txt"
-STILT_DOCUMENTS_DESCRIPTION = \
-    "constants/static_meta/stilt_documents_description.txt"
+AVENGERS_DESCRIPTION = 'constants/static_meta/avengers_description.txt'
+CITIES_MUNICH_DESCRIPTION = 'constants/static_meta/cities_munich_description.txt'
+CITIES_PARIS_DESCRIPTION = 'constants/static_meta/cities_paris_description.txt'
+CITIES_ZURICH_DESCRIPTION = 'constants/static_meta/cities_zurich_description.txt'
+CTE_HR_FULL_DESCRIPTION = 'constants/static_meta/cte_hr_full_description.txt'
+CTE_HR_MONTHLY_DESCRIPTION = 'constants/static_meta/cte_hr_monthly_description.txt'
+CTE_HR_YEARLY_DESCRIPTION = 'constants/static_meta/cte_hr_yearly_description.txt'
+FLUXCOM_ALL_YEARS_PER_VAR_DESCRIPTION = 'constants/static_meta/fluxcom_all_years_per_var_description.txt'
+FLUXCOM_YEARLY_DESCRIPTION = 'constants/static_meta/fluxcom_yearly_description.txt'
+LPJ_GUESS_EU_DESCRIPTION = 'constants/static_meta/lpj_guess_eu_description.txt'
+LPJ_GUESS_GLOBAL_DESCRIPTION = 'constants/static_meta/lpj_guess_global_description.txt'
+STILT_DOCUMENTS_DESCRIPTION = 'constants/static_meta/stilt_documents_description.txt'
+VPRM_2022_DESCRIPTION = 'constants/static_meta/vprm_2022_description.txt'
+VPRM_2023_DESCRIPTION = 'constants/static_meta/vprm_2023_description.txt'
