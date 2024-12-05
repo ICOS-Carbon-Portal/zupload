@@ -6,14 +6,13 @@ from portal_interactor import get_cte_hr_collections
 from portal_interactor import get_meta
 from portal_interactor import get_collection_members
 from portal_interactor import sort_members
-from portal_interactor import upload_collection
+from upload_collections import upload_collection
 from pathlib import Path
 from pprint import pprint
 from settings import Settings
 from json_manager import read_json, write_json
 import utils
 from constants.icons import ICON_CHECK
-from constants.endpoints import CP_COLLECTIONS
 from icoscp_core import icos
 
 
@@ -21,13 +20,14 @@ from icoscp_core import icos
 #  somehow.
 #  1. Make the necessary changes to the script below to upload the
 #     new monthly 5-component collection. Variables that you need to
-#     change: file_path, "key", "members".
+#     change: file_path, "key". "members" will then be fetched from
+#     the newly generated archive.json.
 #  2. Use the uploadgui afterward to manually upload the new yearly
 #     version. For example deprecate the yearly 2023 collection that
 #     includes months 01-09 with a yearly 2023 collection that
 #     includes months 01-10.
 #     Current yearly collection:
-#       https://meta.icos-cp.eu/collections/OOnTso4mHsIdCcBtnuLEwsyj
+#       https://meta.icos-cp.eu/collections/oMO6Svl1IBNz1mYGBym25kdv
 #  3. Use the uploadgui to deprecate the full collection found here
 #     https://doi.org/10.18160/20Z1-AYJ2 by replacing the newly
 #     uploaded yearly collection (2023 (01-10)) or by appending the
@@ -35,21 +35,20 @@ from icoscp_core import icos
 #     fill in the preexisting doi field.
 #  4. Update the target url of the doi to the newly uploaded full
 #     collection.
-# settings = Settings().settings
-# file_path = Path(settings.json_collection_standalone_files, f"202401.json")
-# json_content = make_monthly_cte_hr_collection(collection=dict({
-#     "key": "202401",
-#     "members": [
-#         "https://meta.icos-cp.eu/objects/LfA0696zOGsuFn9zSggKTiUO",
-#         "https://meta.icos-cp.eu/objects/cgmpx-AePxIWUR7ZjUQaSQDG",
-#         "https://meta.icos-cp.eu/objects/Yt_noQmP_tEkELp7jXPX0yqh",
-#         "https://meta.icos-cp.eu/objects/LbmHhWRZUBAtW4o3T2tIDq9n",
-#         "https://meta.icos-cp.eu/objects/3dCeGenr_ewGbHShCB149WD8"
-#     ],
-#     # "isNextVersionOf": "mplampla"
-# }))
-# write_json(path=str(file_path.resolve()), content=json_content)
-# upload_collection(json_file=str(file_path.resolve()))
+settings = Settings().settings
+archive = read_json(settings.archive_path)
+members = list()
+for base_key, base_info in archive.items():
+    members.append(base_info['file_metadata_url'])
+file_path = Path(settings.json_collection_standalone_files, f"202408.json")
+json_content = make_monthly_cte_hr_collection(collection=dict({
+    "key": "202408",
+    "members": members,
+    "isNextVersionOf": None
+}))
+write_json(path=str(file_path.resolve()), content=json_content,
+           convert_posix=False)
+resp = upload_collection(json_file=str(file_path.resolve()), portal='icos')
 # Todo: Ends here.
 
 # Todo: DO NOT DELETE THIS CODE BLOCK, it is meant to be integrated

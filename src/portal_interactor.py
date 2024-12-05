@@ -8,14 +8,14 @@ import re
 from icoscp_core import icos
 import requests
 # Local application/library specific imports.
+from constants import envri
+from constants.colors import Colors as c
 from constants.icons import ICON_CHECK
-from constants.endpoints import METADATA_UPLOAD_URL, \
-    METASTAGING_UPLOAD_URL
-from settings import YamlSettings
+from json_manager import make_monthly_cte_hr_collection
 from json_manager import read_json, write_json
+from settings import YamlSettings
 import exiter
 import utils
-from json_manager import make_monthly_cte_hr_collection
 
 
 class PortalInteractor:
@@ -24,13 +24,24 @@ class PortalInteractor:
         self.settings = settings
 
     def upload_metadata(self) -> None:
-        print('- Uploading meta-data.')
+        text = '- Uploading meta-data.'
+        print(c.color_text(text, c.HEADER, c.BOLD))
         archive = read_json(self.settings.archive_path)
         for base_key, base_info in archive.items():
-            data = open(file=base_info["json_file_path"], mode="rb")
-            headers = {"Content-Type": "application/json"}
-            url = METADATA_UPLOAD_URL if self.settings.upload_to_production \
-                else METASTAGING_UPLOAD_URL
+            data = open(file=base_info['json_file_path'], mode='rb')
+            headers = {'Content-Type': 'application/json'}
+            url = str()
+            if self.settings.portal == 'icos':
+                url = (envri.ICOS_CONFIG.meta_url if
+                       self.settings.upload_to_production
+                       else envri.ICOS_CONFIG.meta_staging_url)
+            elif self.settings.portal == 'cities':
+                url = (envri.CITIES_CONFIG.meta_url
+                       if self.settings.upload_to_production
+                       else envri.CITIES_CONFIG.meta_staging_url)
+            else:
+                exiter.exit_zupload(info={'msg': 'Not implemented yet.'})
+
             upload_metadata_response = requests.post(
                 url=url,
                 data=data,
@@ -38,9 +49,9 @@ class PortalInteractor:
                 cookies=utils.get_cookie_jar()
             )
             if upload_metadata_response.status_code == 200:
-                base_info["file_data_url"] = upload_metadata_response.text
-                base_info["file_metadata_url"] = \
-                    upload_metadata_response.text.replace("data", "meta")
+                base_info['file_data_url'] = upload_metadata_response.text
+                base_info['file_metadata_url'] = \
+                    upload_metadata_response.text.replace('data', 'meta')
             else:
                 exiter.exit_zupload(
                     exit_type='upload_meta_data',
@@ -51,8 +62,8 @@ class PortalInteractor:
                         'file_name': base_info['file_name']
                     }))
             self.maybe_show_progress_upload_meta_data(
-                file_name=base_info["file_name"],
-                landing_page=base_info["file_metadata_url"]
+                file_name=base_info['file_name'],
+                landing_page=base_info['file_metadata_url']
             )
             # Todo: Probably remove this.
             # tools.progress_bar(operation='upload_meta_data',
@@ -65,11 +76,12 @@ class PortalInteractor:
         return
 
     def upload_data(self) -> None:
-        print('- Uploading data.')
+        text = '- Uploading data.'
+        print(c.color_text(text, c.HEADER, c.BOLD))
         archive = read_json(self.settings.archive_path)
         for base_key, base_info in archive.items():
             if 'file_data_url' not in base_info.keys():
-                print(f"file_data_url key does not exist for {base_key}")
+                print(f'file_data_url key does not exist for {base_key}')
                 continue
             args = {
                 'url': base_info['file_data_url'],
@@ -87,7 +99,7 @@ class PortalInteractor:
                         'file_name': base_info['file_name']
                     }))
             self.maybe_show_progress_upload_data(
-                file_name=base_info["file_name"]
+                file_name=base_info['file_name']
             )
             # tools.progress_bar(operation='upload_data',
             #                    current=index + 1,
@@ -102,11 +114,12 @@ class PortalInteractor:
     def try_ingest(self) -> None:
         """Tests ingestion of provided files to the Carbon Portal."""
         # Todo: Fix the way try_ingest() outputs stuff.
-        print(f'- Trying ingestion of files (This might take a while...)')
+        text = '- Trying ingestion of files (This might take a while...)'
+        print(c.color_text(text, c.HEADER, c.BOLD))
         subprocesses = self.settings.try_ingest_subprocesses
         archive = read_json(self.settings.archive_path)
         checks = 0
-        command_list = [base_info["try_ingest_components"] for base_info in
+        command_list = [base_info['try_ingest_components'] for base_info in
                         archive.values()]
         lists_to_process = [
             command_list[i * subprocesses:(i + 1) * subprocesses]
@@ -128,7 +141,7 @@ class PortalInteractor:
                     else:
                         checks += 1
                         self.maybe_show_progress_try_ingest(
-                            (str(pool_result["file_name"]))
+                            (str(pool_result['file_name']))
                         )
                         # tools.progress_bar(operation='try_ingest',
                         #                    current=checks,
@@ -146,6 +159,7 @@ class PortalInteractor:
             data=open(file=try_ingest_components['file_path'], mode='rb'),
             params=try_ingest_components['params']
         )
+
         file_name = try_ingest_components['file_path'].split('/')[-1]
         return {'status_code': try_ingest_response.status_code,
                 'text': try_ingest_response.text,
@@ -158,27 +172,27 @@ class PortalInteractor:
 
     def maybe_show_progress_try_ingest(self, file_name: str) -> None:
         if self.settings.show_progress_try_ingest:
-            print(f"\tSuccessfully tried ingestion of {file_name} "
-                  f"{ICON_CHECK}")
+            print(f'\tSuccessfully tried ingestion of {file_name} '
+                  f'{ICON_CHECK}')
         return
 
     def maybe_show_progress_upload_meta_data(self, file_name: str,
                                              landing_page: str) -> None:
         if self.settings.show_progress_upload_meta_data:
-            print(f"\tSuccessfully uploaded meta-data for {file_name} "
-                  f"{ICON_CHECK} -> {landing_page}")
+            print(f'\tSuccessfully uploaded meta-data for {file_name} '
+                  f'{ICON_CHECK} -> {landing_page}')
         return
 
     def maybe_show_progress_upload_data(self, file_name: str) -> None:
         if self.settings.show_progress_upload_data:
-            print(f"\tSuccessfully uploaded data for {file_name} "
-                  f"{ICON_CHECK}")
+            print(f'\tSuccessfully uploaded data for {file_name} '
+                  f'{ICON_CHECK}')
         return
 
 
 def download_collections() -> Any:
     """SPARQL query for all collections."""
-    with open(file="queries/collections.txt", mode="r") as query_handle:
+    with open(file='queries/collections.txt', mode='r') as query_handle:
         query = query_handle.read()
     return icos.meta.sparql_select(query=query)
 
@@ -186,32 +200,32 @@ def download_collections() -> Any:
 def get_cte_hr_collections(interval: str) -> dict[str, str]:
     query_results = download_collections()
     collections: dict[str, str] = dict()
-    if interval == "monthly":
-        pattern = r"High-resolution, near-real-time fluxes over Europe " \
-                  r"from CTE-HR for \d{4}-\d{2}$"
+    if interval == 'monthly':
+        pattern = r'High-resolution, near-real-time fluxes over Europe ' \
+                  r'from CTE-HR for \d{4}-\d{2}$'
         for res in query_results.bindings:
-            if match := re.search(pattern, res["title"].value):
+            if match := re.search(pattern, res['title'].value):
                 collections.setdefault(
-                    match[0][-7:].replace("-", ""),
-                    res["coll"].uri
+                    match[0][-7:].replace('-', ''),
+                    res['coll'].uri
                 )
-    elif interval == "yearly":
-        pattern = r"High-resolution, near-real-time fluxes over Europe " \
-                  r"from CTE-HR for \d{4}$"
+    elif interval == 'yearly':
+        pattern = r'High-resolution, near-real-time fluxes over Europe ' \
+                  r'from CTE-HR for \d{4}$'
         for res in query_results.bindings:
-            if (match := re.search(pattern, res["title"].value)) and \
-                    "R4FivCqCR62RruN3mvh5dG2b" not in res["coll"].uri:
+            if (match := re.search(pattern, res['title'].value)) and \
+                    'R4FivCqCR62RruN3mvh5dG2b' not in res['coll'].uri:
                 collections.setdefault(
                     match[0][-4:],
-                    res["coll"].uri
+                    res['coll'].uri
                 )
     else:
-        pattern = r"High-resolution, near-real-time fluxes over Europe " \
-                  r"from CTE-HR for \d{4}-\d{4}$"
+        pattern = r'High-resolution, near-real-time fluxes over Europe ' \
+                  r'from CTE-HR for \d{4}-\d{4}$'
         for res in query_results.bindings:
-            if match := re.search(pattern, res["title"].value):
+            if match := re.search(pattern, res['title'].value):
                 collections.setdefault(
-                    match[0][-9:].replace("-", "_"),
+                    match[0][-9:].replace('-', '_'),
                     res["coll"].uri
                 )
     return collections
@@ -239,7 +253,8 @@ def sort_members(members: list[dict[Any, Any]]) -> list[str]:
     return sorted_members
 
 
-def upload_collection(json_file: str) -> Any:
+def upload_collection(json_file: str, portal: str) -> Any:
+    # Todo: Sync this with collection_upload.py upload_collection().
     response = utils.handle_request(
         request="post",
         args={

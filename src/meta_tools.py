@@ -4,61 +4,69 @@ from typing import Tuple, Optional
 # Related third party imports.
 
 # Local application/library specific imports.
-from constants.obj_specs import OBJECT_SPECS
+from constants.obj_specs import ICOS_OBJECT_SPECS, CITIES_OBJECT_SPECS
 
 
-def get_spec(file_name: str) -> Tuple[str, str]:
-    if 'persector' in file_name:
-        dataset_type = 'anthropogenic emissions per sector'
-        dataset_object_spec = \
-            OBJECT_SPECS['anthropogenic_emission_model_results']
-    elif 'anthropogenic' in file_name:
-        dataset_type = 'anthropogenic emissions'
-        dataset_object_spec = \
-            OBJECT_SPECS['anthropogenic_emission_model_results']
-    elif 'nep' in file_name:
-        dataset_type = 'biospheric fluxes'
-        dataset_object_spec = \
-            OBJECT_SPECS['biospheric_model_results']
-    elif 'fire' in file_name:
-        dataset_type = 'fire emissions'
-        dataset_object_spec = \
-            OBJECT_SPECS['file_emission_model_results']
-    elif 'ocean' in file_name:
-        dataset_type = 'ocean fluxes'
-        dataset_object_spec = \
-            OBJECT_SPECS['oceanic_flux_model_results']
+def get_spec(reason: str, file_name: str) -> Tuple[str, str]:
+    # Todo: reason and data_object_specs should be in a frozen dataclass
+    #   in the settings.py file. The ds_type seems not needed, but it is
+    #   used in the json_manager.py file to construct the title. It is
+    #   only used for cte-hr so perhaps I can find a work around.
+    ds_type, obj_spec_uri = None, None
+    if reason == 'cte-hr':
+        if any(part in file_name for part in ['persector', 'anthropogenic']):
+            ds_type = 'Anthropogenic emission model results (near real time)'
+            obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
+        elif 'nep' in file_name:
+            ds_type = 'Biospheric model results (near real time)'
+            obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
+        elif 'fire' in file_name:
+            ds_type = 'Fire emission model results (near real time)'
+            obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
+        elif 'ocean' in file_name:
+            ds_type = 'Oceanic flux model results (near real time)'
+            obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
+    elif reason in ['lpj-guess-eu', 'lpj-guess-global']:
+        ds_type = 'Biosphere modeling spatial result'
+        obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
+    elif reason == 'cities':
+        ds_type = 'Non-standard spatial product'
+        obj_spec_uri = CITIES_OBJECT_SPECS[ds_type]
     elif 'transcom' in file_name:
-        dataset_type = 'inversion time-series'
-        dataset_object_spec = \
-            OBJECT_SPECS['inversion_modeling_time_series']
+        ds_type = 'inversion time-series'
+        obj_spec_uri = \
+            ICOS_OBJECT_SPECS['Inversion modeling time-series result']
     elif any(part in file_name for part in ['CSR', 'LUMIA', 'Priors', 'GCP']):
-        dataset_type = 'inversion modeling spatial'
-        dataset_object_spec = \
-            OBJECT_SPECS['inversion_modeling_spatial']
+        ds_type = 'Inversion modeling spatial result'
+        obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
     elif 'zip' in file_name:
-        dataset_type = 'model data archive'
-        dataset_object_spec = \
-            OBJECT_SPECS['model_data_archive']
+        if 'PARIS_WP3' in file_name:
+            ds_type = 'Atmospheric measurements results archive'
+            obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
+        else:
+            ds_type = 'model data archive'
+            obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
     elif any(part in file_name for part in [
         'VPRM', 'lpj', 'ET', 'ET_T', 'GPP', 'NEE'
     ]):
-        dataset_type = 'biosphere modeling spatial'
-        dataset_object_spec = \
-            OBJECT_SPECS['biosphere_modeling_spatial']
+        ds_type = 'Biosphere modeling spatial result'
+        obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
     elif 'traceRadon' in file_name:
-        dataset_type = 'radon flux map'
-        dataset_object_spec = \
-            OBJECT_SPECS['radon_flux_map']
-    elif 'EDGAR' in file_name:
-        dataset_type = 'EDGAR anthropogenic emissions'
-        dataset_object_spec = \
-            OBJECT_SPECS['co2_emission_inventory']
-    elif "AVENGERS" in file_name:
-        dataset_type = 'AVENGERS aerosol emissions'
-        dataset_object_spec = \
-            OBJECT_SPECS['cf_compliant_netcdf']
-    else:
-        dataset_type = 'Easter Egg'
-        dataset_object_spec = 'Easter Egg'
-    return dataset_type, dataset_object_spec
+        ds_type = 'radon flux map'
+        obj_spec_uri = \
+            ICOS_OBJECT_SPECS['radon_flux_map']
+    elif all(part in file_name for part in ['EDGAR', 'CO2']):
+        ds_type = 'Emission inventory for CO2'
+        obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
+    elif all(part in file_name for part in ['EDGAR', 'CH4']):
+        ds_type = 'Emission inventory for CH4'
+        obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
+
+    elif 'AVENGERS' in file_name:
+        ds_type = 'AVENGERS aerosol emissions'
+        obj_spec_uri = \
+            ICOS_OBJECT_SPECS['cf_compliant_netcdf']
+    assert obj_spec_uri is not None, \
+        f'Could not infer data type specification for {file_name}'
+    assert ds_type is not None, 'Could not infer data type specification'
+    return ds_type, obj_spec_uri

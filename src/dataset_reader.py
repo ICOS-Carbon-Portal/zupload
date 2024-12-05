@@ -10,7 +10,8 @@ file_manager = FileManager(settings)
 
 for file in file_manager.input_data:
     dataset = xarray.open_dataset(filename_or_obj=file)
-    pprint(dataset.attrs)
+    # pprint(dataset.attrs)
+    print(dataset.coords)
     break
 
 

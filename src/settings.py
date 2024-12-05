@@ -3,15 +3,19 @@ from dataclasses import dataclass
 from pathlib import Path
 # Related third party imports.
 import yaml
+
+import exiter
 # Local application/library specific imports.
 from constants.general_settings import YAML_SETTINGS
 
 
 @dataclass(frozen=True)
 class YamlSettings:
+    portal: str
     reason: str
     archive_files: bool
     try_ingest: bool
+    calculate_hash_sum: bool
     archive_json: bool
     upload_meta_data: bool
     upload_data: bool
@@ -26,6 +30,7 @@ class YamlSettings:
     show_input_files: bool
     show_progress_archive_files: bool
     show_progress_try_ingest: bool
+    show_separator: bool
     show_progress_archive_json: bool
     show_progress_upload_meta_data: bool
     show_progress_upload_data: bool
@@ -37,6 +42,10 @@ class Settings:
 
     def __init__(self) -> None:
         self.settings = self.read_settings()
+        if self.settings.portal not in ['icos', 'cities', 'sites']:
+            msg = ('Wrong or no portal defined in file: "settings.yml".'
+                   ' Valid entries are "icos", "cities", or "sites"')
+            exiter.exit_zupload(info={'msg': msg})
         self.init_files()
         return
 

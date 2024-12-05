@@ -1,0 +1,10 @@
+Biosphere-atmosphere exchange fluxes for CO2 simulated with the Vegetation Photosynthesis and Respiration Model VPRM (Mahadevan et al., 2008, https://doi.org/10.1029/2006GB002735) for the European domain.
+Simulations were performed using the following datasets:
+- Vegetation Photosynthesis and Respiration Model (VPRM) parameters optimized for the year 2007 using 46 sites within Europe (available from www.europe-fluxdata.eu)
+- VPRM preprocessor code version Rev.116
+- VPRM optimization code version Rev.7
+- VPRM offline code version Rev. 13
+- MODIS Terra MOD09A1 surface reflectances version 6.1
+- Downward shortwave radiation and 2m Temperature extracted from analysis and short-term forecast fields from the ECMWF IFS model
+- Landcover classification based on SYNMAP (Jung et al., 2006, https://doi.org/10.1016/j.rse.2006.01.020)
+Note that this new version of VPRM fluxes is based on MODIS V6.1 instead of V6.0 as in the previous VPRM fluxes https://doi.org/10.18160/VX78-HVA1. Results for 2022 are provided with both versions for comparison, showing a mean difference in GEE of 0.02%. This allows to cautiously extend the VPRM 2006-2022 dataset with this new version.
