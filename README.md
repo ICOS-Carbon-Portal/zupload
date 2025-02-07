@@ -141,4 +141,4 @@ services.
 "user" if no other option is provided.
 
 <hr>
-Credits to: Oleg Mirzov, Ute Karstens, Maggie Hellström 
+Credits to: Jonathan Thiry, Maggie Hellström, Oleg Mirzov, Ute Karstens 
