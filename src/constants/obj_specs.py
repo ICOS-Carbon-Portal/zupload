@@ -17,6 +17,7 @@ ICOS_OBJECT_SPECS = {
     'Model data archive': f'{cp_meta}modelDataArchive',
     'Oceanic flux model results (near real time)': f'{cp_meta}oceanicFluxModelResults',
     'Radon flux map': f'{cp_meta}radonFluxSpatialL3',
+    'Easter Egg': 'Easter Egg',
 }
 
 # ICOS_OBJECT_SPECS = {
@@ -35,5 +36,9 @@ ICOS_OBJECT_SPECS = {
 
 city_meta = envri.CITIES_CONFIG.meta_resources_prefix
 CITIES_OBJECT_SPECS = {
-    'Non-standard spatial product': f'{city_meta}nonStandardSpatialNetcdf'
+    'Biogenic in-situ observations (L2)': f'{city_meta}biogenicArchiveL2',
+    'Doppler Wind Lidar vertical wind profile': f'{city_meta}DWLProfiles',
+    'EC flux time series archive (raw data)': f'{city_meta}ecFluxArchiveRaw',
+    'EC flux time series archive (L1)': f'{city_meta}ecFluxArchiveL1',
+    'Non-standard spatial product': f'{city_meta}nonStandardSpatialNetcdf',
 }

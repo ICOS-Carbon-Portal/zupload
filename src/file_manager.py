@@ -12,6 +12,7 @@ from constants import envri
 from constants import general_settings as cgs
 from constants import icons as ci
 from exiter import exit_zupload
+from constants.general_settings import YAML_SETTINGS
 from json_manager import write_json
 from settings import YamlSettings
 from meta_tools import get_spec
@@ -42,8 +43,19 @@ class FileManager:
         text = f'- Archiving system information'
         print(c.color_text(text, c.HEADER, c.BOLD))
         archive_out = dict()
+        excluded_items = ['mapbooks', 'stilt-docs', 'cities-fluxes']
         for file in self.input_data:
             ds_type, ds_obj_spec = get_spec(self.settings.reason, file.name)
+            ingest_components = None if self.settings.reason in excluded_items\
+                else self.build_try_ingest(str(file.resolve()), ds_obj_spec)
+            if ingest_components is None and self.settings.try_ingest:
+                msg = (
+                    f'It seems like "{self.settings.reason}" files are '
+                    'excluded from trying ingestion, but try_ingest has been '
+                    'set to "True" in the settings. Please set try_ingest to '
+                    f'"False" in "{YAML_SETTINGS}" and rerun the script.'
+                )
+                exiter.exit_zupload(info={'msg': msg})
             archive_out[file.stem] = {
                 # Todo: replace every occurrence of trying to access
                 #  file_name or suffix or whatever with:
@@ -53,8 +65,7 @@ class FileManager:
                 'suffix': file.suffix,
                 'dataset_type': ds_type,
                 'dataset_object_spec': ds_obj_spec,
-                'try_ingest_components': self.build_try_ingest(
-                    str(file.resolve()), ds_obj_spec)
+                'try_ingest_components': ingest_components
             }
             # Todo: Edit this for each new dataset type.
             if self.settings.reason in ["cte-hr", "cte-hr-202306"]:

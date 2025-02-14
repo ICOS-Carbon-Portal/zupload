@@ -9,7 +9,7 @@ import exiter
 from constants.general_settings import YAML_SETTINGS
 
 
-@dataclass(frozen=True)
+@dataclass()
 class YamlSettings:
     portal: str
     reason: str
@@ -19,10 +19,10 @@ class YamlSettings:
     archive_json: bool
     upload_meta_data: bool
     upload_data: bool
-    master_dir: str
-    archive_path: str
-    json_standalone_files: str
-    json_collection_standalone_files: str
+    primary_dir: str | None
+    archive_path: str | None
+    json_files: str | None
+    json_coll_files: str | None
     data_dir: str
     pattern: str
     previous_collection: str | None
@@ -32,6 +32,7 @@ class YamlSettings:
     show_progress_try_ingest: bool
     show_separator: bool
     show_progress_archive_json: bool
+    show_progress_hash_sum: bool
     show_progress_upload_meta_data: bool
     show_progress_upload_data: bool
     upload_to_production: bool
@@ -55,9 +56,21 @@ class Settings:
             return YamlSettings(**yaml.safe_load(yaml_handler))
 
     def init_files(self) -> None:
-        Path(self.settings.master_dir).mkdir(parents=True, exist_ok=True)
+        """Create the needed application directories.
+
+        If no `primary_dir` is set in the settings, the application will
+        place its generated files under "output/" in the application's
+        root directory.
+        Specifically in a directory named after the reason of this
+        upload.
+        """
+        r = self.settings.reason
+        if not self.settings.primary_dir:
+            self.settings.primary_dir = f'output/{r}'
+            self.settings.archive_path = f'output/{r}/archive.json'
+            self.settings.json_files = f'output/{r}/json-files/'
+            self.settings.json_coll_files = f'output/{r}/json-coll-files/'
+        Path(self.settings.primary_dir).mkdir(parents=True, exist_ok=True)
         Path(self.settings.archive_path).touch(exist_ok=True)
-        Path(self.settings.json_standalone_files).mkdir(parents=True,
-                                                        exist_ok=True)
-        Path(self.settings.json_collection_standalone_files).\
-            mkdir(parents=True, exist_ok=True)
+        Path(self.settings.json_files).mkdir(parents=True, exist_ok=True)
+        Path(self.settings.json_coll_files).mkdir(parents=True, exist_ok=True)
