@@ -1,0 +1,43 @@
+# The portal [icos, cities]
+portal: ""
+reason: ""
+
+# Where is your data?
+data_dir: ""
+pattern: "*.nc"
+
+# The critical part ###################
+archive_files: true
+# try_ingest should be set to false for .pdf files or any data that does not
+# conform to the try_ingest process.
+try_ingest: false
+calculate_hash_sum: true
+archive_json: true
+
+upload_to_production: true
+upload_meta_data: true
+upload_data: true
+#######################################
+
+# Where do you want your metadata?
+# By default, the application will place generated metadata within the
+# output/reason directory in the application's root directory.
+# Where reason is the second field of this yml file.
+primary_dir:
+archive_path:
+json_files:
+json_coll_files:
+
+# Show and tell
+previous_collection: null
+try_ingest_subprocesses: 1
+show_input_files: true
+show_separator: true
+show_progress_archive_files: true
+show_progress_try_ingest: true
+show_progress_archive_json: true
+show_progress_hash_sum: true
+show_progress_upload_meta_data: true
+show_progress_upload_data: true
+overwrite_archive: true
+
