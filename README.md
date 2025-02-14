@@ -1,3 +1,11 @@
+# What is zupload?
+This application facilitates the process of uploading metadata and data to the Carbon Portal through a streamlined series of steps:
+- Archive Files    : Archive information of input files.
+- Try Ingestion    : Try to ingest the files into the portal.
+- Archive JSON     : Generate and archive metadata in the form of JSON files.
+- Upload Metadata  : Upload metadata to portal.
+- Upload Data      : Upload data to the portal.
+
 # Quickstart
 - **Edit the settings.yml file.** Click [here](#yaml-settings) for a detailed 
 explanation of each settings field. 
@@ -141,4 +149,4 @@ services.
 "user" if no other option is provided.
 
 <hr>
-Credits to: Oleg Mirzov, Ute Karstens, Maggie Hellström 
+Credits to: Jonathan Thiry, Maggie Hellström, Oleg Mirzov, Ute Karstens 
