@@ -7,6 +7,7 @@ from icoscp_core.envri import ICOS_CONFIG
 import requests
 from requests.utils import cookiejar_from_dict
 # Local application/library specific imports.
+from constants.icons import ICON_CHECK
 
 
 def cp_auth() -> None:
@@ -74,7 +75,7 @@ def progress_bar(info: dict[str, str], operation: Optional[str] = None,
         )
     elif operation == 'calculate_hash_sum':
         prepender = (
-            f'\tCalculating hash sum of {info["file_name"]}'
+            f'\t\tCalculating hash sum of {info["file_name"]}'
         )
     elif operation == 'archive_meta_data':
         prepender = (
@@ -104,8 +105,8 @@ def progress_bar(info: dict[str, str], operation: Optional[str] = None,
     arrow = int(fraction * bar_length - 1) * '-' + '>'
     padding = int(bar_length - len(arrow)) * ' '
     if current == total:
-        prepender = '\tCompletion'
-        ending = f' {icons.ICON_CHECK}\n'
+        prepender = '\t\tCompletion'
+        ending = f' {ICON_CHECK}\n'
     else:
         ending = '\r'
     progress = str(

@@ -6,28 +6,31 @@ import json
 from pathlib import Path, PosixPath
 import re
 # Related third party imports.
-from icoscp_core.envri import ICOS_CONFIG
+from icoscp_core.envri import ICOS_CONFIG, CITIES_CONFIG
 from icoscp_core.queries.dataobjlist import DataObjectLite
 from icoscp_core.sparql import SparqlResults
 from xarray.core.dataset import Dataset as Xds
 import PyPDF2
 import numpy as np
+import pandas as pd
 import pyproj
 from pyproj import Transformer
 import xarray
 # Local application/library specific imports.
 from constants.colors import Colors as c
-from constants.licences import ICOS_LICENSE
+from constants.general_settings import EXCLUDED_VARIABLES
 from constants.icons import ICON_CHECK
+from constants.licences import ICOS_LICENSE
+from constants.organizations import *
 from constants.people import *
+from constants.queries import *
+from constants.spatial_boxes import *
 from constants.static_meta_paths import *
 from constants.stations import *
-from constants.organizations import *
-from constants.spatial_boxes import *
-from constants.general_settings import EXCLUDED_VARIABLES
-from settings import YamlSettings
 from icoscp_core import icos, cities, metaclient
 from icoscp_core.metacore import DocObject
+from settings import YamlSettings
+from utils import progress_bar
 import exiter
 
 
@@ -54,105 +57,96 @@ class JsonManager:
             text = '- Archiving meta-data (Hash-sum calculation is excluded.)'
         print(c.color_text(text, c.HEADER, c.BOLD))
 
-        self.make_docs_json() if self.settings.reason == 'stilt-docs' \
-            else self.make_json()
+        if self.settings.reason in ['mapbooks', 'stilt-docs']:
+            self.make_docs_json()
+        elif self.settings.reason in ['cities-fluxes', 'd3.13', 'lidar']:
+            self.make_station_specific_json()
+        else:
+            self.make_json()
 
     def make_json(self) -> None:
         archive = read_json(self.settings.archive_path)
+        r = self.settings.reason
         for base_key, base_info in archive.items():
             self.maybe_show_separator()
             xrds = xarray.open_dataset(base_info['file_path'])
             if self.settings.calculate_hash_sum:
-                hash_sum = get_hash_sum(file_path=base_info['file_path'],
-                                        progress=False)
+                hash_sum = get_hash_sum(
+                    file_path=base_info['file_path'],
+                    progress=self.settings.show_progress_hash_sum
+                )
             else:
                 hash_sum = base_info['json']['hashSum']
 
             base_info['json'] = dict({
                 'fileName': base_info['file_name'],
                 'hashSum': hash_sum,
-                'isNextVersionOf': (None if not (
-                    p := get_prev_dobj(reason=self.settings.reason,
-                                       file_name=base_info[
-                                           'file_name'])) else p),
-                'preExistingDoi': get_doi(reason=self.settings.reason,
-                                          base_info=base_info),
+                'isNextVersionOf': (None if not (p := get_prev_dobj(reason=r, file_name=base_info['file_name'])) else p),
+                'preExistingDoi': get_doi(reason=r, base_info=base_info),
                 'objectSpecification': base_info['dataset_object_spec'],
                 'references': {
-                    'keywords': get_keywords(reason=self.settings.reason,
-                                             dataset=xrds),
+                    'keywords': get_keywords(reason=r, dataset=xrds),
                     'licence': ICOS_LICENSE,
                     'autodeprecateSameFilenameObjects': False,
                     'duplicateFilenameAllowed': True,
                 },
                 'specificInfo': {
-                    'title': get_title(reason=self.settings.reason,
-                                       dataset=xrds, base_info=base_info),
-                    'description': get_description(reason=self.settings.reason,
-                                                   dataset=xrds,
-                                                   base_info=base_info),
-                    'spatial': get_spatial_box(reason=self.settings.reason,
-                                               file_name=base_info[
-                                                   'file_name'], dataset=xrds),
+                    'title': get_title(reason=r, dataset=xrds, base_info=base_info),
+                    'description': get_description(reason=r, dataset=xrds, base_info=base_info),
+                    'spatial': get_spatial_box(reason=r, file_name=base_info['file_name'], dataset=xrds),
                     'temporal': {
-                        'interval': get_interval(reason=self.settings.reason,
-                                                 dataset=xrds),
-                        'resolution': get_resolution(
-                            reason=self.settings.reason,
-                            file_name=base_info['file_name'], dataset=xrds),
+                        'interval': get_interval(reason=r, dataset=xrds),
+                        'resolution': get_resolution(reason=r, file_name=base_info['file_name'], dataset=xrds),
                     },
-                    # 'forStation': (s if (s := get_station(reason=self.settings.reason, base_info=base_info)) else None),
+                    'forStation': (s if (s := get_station(reason=r, base_info=base_info)) else None),
                     'production': {
-                        'creator': get_creator(reason=self.settings.reason),
-                        'contributors': get_contributors(
-                            reason=self.settings.reason),
-                        'hostOrganization': get_host_org(
-                            reason=self.settings.reason),
-                        'comment': (c if (
-                            c := get_comment(reason=self.settings.reason,
-                                             file_name=base_info['file_name'],
-                                             dataset=xrds)) else None),
+                        'creator': get_creator(reason=r),
+                        'contributors': get_contributors(reason=r),
+                        'hostOrganization': get_host_org(reason=r),
+                        'comment': (c if (c := get_comment(reason=r, file_name=base_info['file_name'], dataset=xrds)) else None),
                         'sources': [],
-                        'documentation': (d if (d := get_documentation(
-                            reason=self.settings.reason)) else None),
-                        'creationDate': get_creation_date(
-                            reason=self.settings.reason, dataset=xrds),
+                        'documentation': (d if (d := get_documentation(reason=r)) else None),
+                        'creationDate': get_creation_date(reason=r, dataset=xrds),
                         # Todo: rework this for future cte-hr versions.
                     },
 
-                    'variables': (None if not (
-                        v := get_vars(reason=self.settings.reason,
-                                      file_name=base_info['file_name'],
-                                      dataset=xrds)) else v)
+                    'variables': (None if not (v := get_vars(reason=r, file_name=base_info['file_name'], dataset=xrds)) else v)
                 },
                 'submitterId': 'CP',
             })
             base_info['json_file_path'] = \
-                Path(self.settings.json_standalone_files,
-                     f'{base_key}.json')
+                Path(self.settings.json_files, f'{base_key}.json')
             write_json(base_info['json_file_path'], base_info['json'],
                        convert_posix=False)
             self.maybe_show_progress_archive_json(base_info['file_name'])
         self.maybe_save_archive(archive)
+        return
 
     def make_docs_json(self) -> None:
         archive = read_json(self.settings.archive_path)
-        for i, (base_key, base_info) in enumerate(archive.items(), start=1):
-            print(f'\t{i}. {base_key}')
-            hash_sum = get_hash_sum(file_path=base_info['file_path'],
-                                    progress=False)
-            prev_version = get_previous_version(
-                reason=self.settings.reason,
-                dobj=f'{ICOS_CONFIG.meta_instance_prefix}objects/{hash_sum}',
-                file_name=base_info['file_name']
-            )
+        r = self.settings.reason
+        for base_key, base_info in archive.items():
+            self.maybe_show_separator()
+            if self.settings.calculate_hash_sum:
+                hash_sum = get_hash_sum(file_path=base_info['file_path'],
+                                        progress=False)
+            else:
+                hash_sum = base_info['json']['hashSum']
+            # prev_version = get_previous_version(
+            #     reason=self.settings.reason,
+            #     dobj=f'{ICOS_CONFIG.meta_instance_prefix}objects/{hash_sum}',
+            #     file_name=base_info['file_name']
+            # )
             base_info['json'] = dict({
                 'authors': [CARBON_PORTAL],
-                # 'title': get_title(reason=self.settings.reason, extra_meta={'prev_version': prev_version, 'file_path': base_info['file_path']}),
-                # 'description': get_description(reason=self.settings.reason, extra_meta={'prev_version': prev_version, 'file_path': base_info['file_path']}),
+                'title': get_title_doc(reason=r, base_info=base_info),
+                'description': get_description_doc(reason=r, base_info=base_info),
+
+                # 'title': get_title(reason=r, extra_meta={'prev_version': prev_version, 'file_path': base_info['file_path']}),
+                # 'description': get_description(reason=r, extra_meta={'prev_version': prev_version, 'file_path': base_info['file_path']}),
                 'fileName': base_info['file_name'],
                 'hashSum': hash_sum,
-                'isNextVersionOf': prev_version if prev_version else [],
+                'isNextVersionOf': (None if not (p := get_prev_dobj(reason=r, file_name=base_info['file_name'])) else p),
                 'references': {
                     'licence': ICOS_LICENSE
                 },
@@ -160,7 +154,57 @@ class JsonManager:
             })
             base_info['json_file_path'] = \
                 Path(self.settings.json_standalone_files, f'{base_key}.json')
-            write_json(base_info['json_file_path'], base_info['json'])
+            write_json(base_info['json_file_path'], base_info['json'],
+                       convert_posix=False)
+            self.maybe_show_progress_archive_json(base_info['file_name'])
+        self.maybe_save_archive(archive)
+        return
+
+    def make_station_specific_json(self) -> None:
+        archive = read_json(self.settings.archive_path)
+        r = self.settings.reason
+        if r == 'lidar':
+            fp = '/srv/git/zupload/input-files/data-files/lidar/PAUL_D3.15_metadata.xlsx'
+        elif r == 'd3.13':
+            fp = '/srv/git/zupload/input-files/data-files/d3.13/maggie_PAUL_D3.13_metadata_in-situ.xlsx'
+        meta_df = pd.read_excel(fp, engine='openpyxl')
+        for base_key, base_info in archive.items():
+            self.maybe_show_separator()
+            # Extract the needed row from the csv using "filename" as
+            # identifier.
+            row = meta_df[meta_df['filename'] == base_info['file_name']]
+            if self.settings.calculate_hash_sum:
+                hash_sum = get_hash_sum(file_path=base_info['file_path'],
+                                        progress=False)
+            else:
+                hash_sum = base_info['json']['hashSum']
+            from numpy import NaN
+            base_info['json'] = dict({
+                'fileName': base_info['file_name'],
+                'hashSum': hash_sum,
+                'isNextVersionOf': (None if not (p := get_prev_dobj(reason=r, file_name=base_info['file_name'])) else p),
+                'preExistingDoi': get_doi(reason=r, base_info=base_info),
+                'objectSpecification': base_info['dataset_object_spec'],
+                'submitterId': 'CP',
+                'specificInfo': {
+                    'station': row['station_uri'].iloc[0],
+                    'acquisitionInterval': get_interval(reason=r, f_name=base_info['file_name'], row=row),
+                    'production': {
+                        'creator': row['creator'].iloc[0],
+                        'contributors': [] if row['contributors'].iloc[0] is NaN else row['contributors'].iloc[0].split(', '),
+                        'creationDate': row['creation_timestamp'].iloc[0],
+                        'comment': row['comment'].iloc[0],
+                    }
+                },
+                'references': {
+                    'keywords': row['keywords'].iloc[0].split(', '),
+                },
+            })
+            base_info['json_file_path'] = \
+                Path(self.settings.json_files, f'{base_key}.json')
+            write_json(base_info['json_file_path'],
+                       base_info['json'], convert_posix=False)
+
             self.maybe_show_progress_archive_json(base_info['file_name'])
         self.maybe_save_archive(archive)
         return
@@ -236,7 +280,8 @@ def get_prev_dobj(
     #     anchor = f'\tVALUES ?fileName {{ "{file_name}" }}'
     #     prev_version = get_prev_by_name(anchor=anchor)
     if reason == 'cities' and file_name:
-        prev_version = get_prev_by_name_cities(anchor=file_name)
+        if not file_name == 'paris_footprint_231202.nc':
+            prev_version = get_prev_by_name_cities(anchor=file_name)
     elif reason == 'cte-gcp' and file_name:
         year = int(file_name.split('_')[1].split('GCP')[1])
         prev_file_name = file_name.replace(f'GCP{year}', f'GCP{year - 1}')
@@ -247,9 +292,10 @@ def get_prev_dobj(
         anchor = f'\tFILTER(REGEX(?fileName, "^GCP{year}_inversions_1x1_version.*.nc$", "i"))'
         prev_version = get_prev_by_name(anchor=anchor)
     elif reason in ['edgar-ch4', 'edgar-co2'] and file_name:
-        year = int(file_name.split('_')[1].split('BP')[1]) - 1
-        prev_file_name = file_name.replace('BP2024', f'BP{year}')
-        anchor = f'\tVALUES ?fileName {{"{prev_file_name}"}}'
+        # year = int(file_name.split('_')[1].split('BP')[1]) - 1
+        # prev_file_name = file_name.replace('BP2024', f'BP{year}')
+        # anchor = f'\tVALUES ?fileName {{"{prev_file_name}"}}'
+        anchor = f'"{file_name}"'
         prev_version = get_prev_by_name(anchor=anchor)
     elif dobj:
         prev_version = get_prev_by_dobj(dobj=dobj)
@@ -293,9 +339,10 @@ def get_prev_by_name_cities(anchor: str) -> str:
 
 def get_prev_by_name(anchor: str) -> str:
     prev_version = str()
-    with open('queries/get_prev_by_name_icos.txt', mode='r') as q_hdl:
-        query = q_hdl.read().replace('#anchor', anchor)
-    print(query)
+    query = GET_PREV_BY_NAME_ICOS.replace('#anchor', anchor)
+
+    # with open('queries/get_prev_by_name_icos.txt', mode='r') as q_hdl:
+    #     query = q_hdl.read().replace('#anchor', anchor)
     sparql_res: SparqlResults = icos.meta.sparql_select(query=query)
     if sparql_res.bindings:
         prev_uri = sparql_res.bindings[0]['dobj'].uri
@@ -303,19 +350,30 @@ def get_prev_by_name(anchor: str) -> str:
     return prev_version
 
 
-def get_prev_by_dobj(dobj: str | DataObjectLite) -> str:
+def get_prev_by_dobj(dobj: str | DataObjectLite, portal: str = 'icos') -> str:
     prev_version = str()
-    if ICOS_CONFIG.meta_instance_prefix not in dobj:
+    if portal == 'icos' and ICOS_CONFIG.meta_instance_prefix not in dobj:
         dobj = f'{ICOS_CONFIG.meta_instance_prefix}objects/{dobj}'
+    elif portal == 'cities' and CITIES_CONFIG.meta_instance_prefix not in dobj:
+        dobj = f'{CITIES_CONFIG.meta_instance_prefix}objects/{dobj}'
+    else:
+        exiter.exit_zupload(exit_type='todos')
+    obj_meta = None
     try:
-        obj_meta = icos.meta.get_dobj_meta(dobj=dobj)
+        if portal == 'icos':
+            obj_meta = icos.meta.get_dobj_meta(dobj=dobj)
+        elif portal == 'cities':
+            obj_meta = cities.meta.get_dobj_meta(dobj=dobj)
+        else:
+            exiter.exit_zupload(exit_type='todos')
     except Exception as e:
         if 'HTTP response code: 500' in str(e):
             pass
         else:
             raise e
     else:
-        prev_version = obj_meta.previousVersion.split('/')[-1]
+        if obj_meta.previousVersion:
+            prev_version = obj_meta.previousVersion.split('/')[-1]
     return prev_version
 
 
@@ -339,7 +397,7 @@ def get_hash_sum(file_path: str, progress: bool = True) -> str:
                     operation='calculate_hash_sum', current=current,
                     total=total,
                     info=dict({
-                        'file_name': file_path.split('/')[-1]
+                        'file_name': str(file_path).split('/')[-1]
                     }))
     return sha256_hash.hexdigest()
 
@@ -493,6 +551,25 @@ def get_description(reason: str,
             with open(VPRM_2023_DESCRIPTION, 'r') as f_hdl:
                 desc = f_hdl.read()
 
+    if not desc:
+        text = '\t\tWarning! Description field is empty!'
+        print(c.color_text(text, c.WARNING))
+    return desc
+
+
+def get_description_doc(reason: str, base_info: dict[Any, Any]) -> Optional[str]:
+    desc = str()
+    fn = base_info['file_name']
+    if reason == 'mapbooks':
+        city, date_str = fn.split('_mapbook_')
+        desc = (
+            f'This document presents maps and analysis results for {city} '
+            'related to the study “Monitoring CO₂ in Diverse European Cities: '
+            'Highlighting Needs and Challenges Through Characterization” '
+            '(Storm et al., 2025, in preparation). It highlights the '
+            f'challenges {city} may encounter when monitoring CO₂ and '
+            f'identifies other cities that may face similar issues.'
+        )
     if not desc:
         text = '\t\tWarning! Description field is empty!'
         print(c.color_text(text, c.WARNING))
@@ -758,13 +835,25 @@ def make_spatial_box(lat_min: float, lat_max: float,
     return spatial_box
 
 
-def get_interval(reason: str, dataset: Xds) -> dict[str, str]:
+def get_interval(reason: str, dataset: Xds | None = None,
+                 f_name: str | None = None, **kwargs) -> dict[str, str]:
     if reason == 'cities':
         start = dt.strptime('20' + str(dataset.timestep[0].item()),
-                            '%Y%m%d%H%M').strftime('%Y-%m-%dT%H:%M:%SZ')
+                            '%Y%m%d%H%M').strftime(''
+                                                   '')
 
         stop = dt.strptime('20' + str(dataset.timestep[-1].item()),
                            '%Y%m%d%H%M').strftime('%Y-%m-%dT%H:%M:%SZ')
+    elif reason == 'lidar':
+        # date = f_name.split('_')[1]
+        date = f_name.split('_')[1][:-3]
+        dt_obj = dt.strptime(date, '%Y-%m-%d')
+        start = dt_obj.strftime('%Y-%m-%dT00:00:00Z')
+        stop = dt_obj.strftime('%Y-%m-%dT23:59:59Z')
+    elif reason == 'd3.13':
+        start = kwargs['row']['start_timestamp'].iloc[0]
+        stop = kwargs['row']['stop_timestamp'].iloc[0]
+
     else:
         start = dataset.time[0].dt.strftime('%Y-%m-%dT%H:%M:%SZ').item()
         stop = dataset.time[-1].dt.strftime('%Y-%m-%dT%H:%M:%SZ').item()
@@ -920,6 +1009,17 @@ def get_title(reason: str, dataset: Xds, base_info: dict[Any, Any]) -> str:
         except AttributeError as e:
             print(e)
 
+    assert title, 'Title cannot be empty'
+    return title
+
+
+def get_title_doc(reason: str, base_info: dict[Any, Any]) -> str:
+    title = str()
+    fn = base_info['file_name']
+    if reason == 'mapbooks':
+        city, date_str = fn.split('_mapbook_')
+        # date = dt.strptime(date_str, '%Y_%m_%d.pdf').strftime('%d %b %Y')
+        title = f'{city} characterization and mapbook'
     assert title, 'Title cannot be empty'
     return title
 

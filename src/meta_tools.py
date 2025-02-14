@@ -2,7 +2,9 @@
 from typing import Tuple, Optional
 
 # Related third party imports.
+import pandas as pd
 
+import exiter
 # Local application/library specific imports.
 from constants.obj_specs import ICOS_OBJECT_SPECS, CITIES_OBJECT_SPECS
 
@@ -32,6 +34,21 @@ def get_spec(reason: str, file_name: str) -> Tuple[str, str]:
     elif reason == 'cities':
         ds_type = 'Non-standard spatial product'
         obj_spec_uri = CITIES_OBJECT_SPECS[ds_type]
+    elif reason == 'cities-fluxes':
+        fp = '/srv/git/zupload/input-files/data-files/cities-fluxes/files_to_be_uploaded.xlsx'
+        df = pd.read_excel(fp, engine='openpyxl')
+        row = df[df['Upload file'] == file_name]
+        if row['Object Spec'].iloc[0] == 'https://citymeta.icos-cp.eu/resources/cpmeta/ecFluxArchiveRaw':
+            ds_type = 'EC flux time series archive (raw data)'
+        elif row['Object Spec'].iloc[0] == 'https://citymeta.icos-cp.eu/resources/cpmeta/ecFluxArchiveL1':
+            ds_type = 'EC flux time series archive (L1)'
+        obj_spec_uri = CITIES_OBJECT_SPECS[ds_type]
+    elif reason == 'lidar':
+        ds_type = 'Doppler Wind Lidar vertical wind profile'
+        obj_spec_uri = CITIES_OBJECT_SPECS[ds_type]
+    elif reason in ['mapbooks', 'stilt-docs']:
+        ds_type = 'Easter Egg'
+        obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
     elif 'transcom' in file_name:
         ds_type = 'inversion time-series'
         obj_spec_uri = \
@@ -61,11 +78,14 @@ def get_spec(reason: str, file_name: str) -> Tuple[str, str]:
     elif all(part in file_name for part in ['EDGAR', 'CH4']):
         ds_type = 'Emission inventory for CH4'
         obj_spec_uri = ICOS_OBJECT_SPECS[ds_type]
-
     elif 'AVENGERS' in file_name:
         ds_type = 'AVENGERS aerosol emissions'
         obj_spec_uri = \
             ICOS_OBJECT_SPECS['cf_compliant_netcdf']
+    elif reason == 'd3.13':
+        ds_type = 'Biogenic in-situ observations (L2)'
+        obj_spec_uri = CITIES_OBJECT_SPECS[ds_type]
+
     assert obj_spec_uri is not None, \
         f'Could not infer data type specification for {file_name}'
     assert ds_type is not None, 'Could not infer data type specification'

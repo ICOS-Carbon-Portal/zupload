@@ -20,14 +20,14 @@ from icoscp_core import icos
 #  somehow.
 #  1. Make the necessary changes to the script below to upload the
 #     new monthly 5-component collection. Variables that you need to
-#     change: file_path, "key". "members" will then be fetched from
-#     the newly generated archive.json.
+#     change: file_path, "key".
+#     "members" will then be fetched from the newly generated archive.json.
 #  2. Use the uploadgui afterward to manually upload the new yearly
 #     version. For example deprecate the yearly 2023 collection that
 #     includes months 01-09 with a yearly 2023 collection that
 #     includes months 01-10.
 #     Current yearly collection:
-#       https://meta.icos-cp.eu/collections/oMO6Svl1IBNz1mYGBym25kdv
+#       https://meta.icos-cp.eu/collections/OUXxkGTbw7LTwbttbj7GwWza
 #  3. Use the uploadgui to deprecate the full collection found here
 #     https://doi.org/10.18160/20Z1-AYJ2 by replacing the newly
 #     uploaded yearly collection (2023 (01-10)) or by appending the
@@ -40,9 +40,9 @@ archive = read_json(settings.archive_path)
 members = list()
 for base_key, base_info in archive.items():
     members.append(base_info['file_metadata_url'])
-file_path = Path(settings.json_collection_standalone_files, f"202408.json")
+file_path = Path(settings.json_collection_standalone_files, f"202411.json")
 json_content = make_monthly_cte_hr_collection(collection=dict({
-    "key": "202408",
+    "key": "202411",
     "members": members,
     "isNextVersionOf": None
 }))
