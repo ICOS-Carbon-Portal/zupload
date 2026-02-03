@@ -1,3 +1,0 @@
-This file contains flux footprints for the Zurich-Hardau flux-tower in Switzerland at 30-minute temporal resolution. The filename includes the date of all footprints contained. Each file contains up to 48 footprints with the following variables each: Time, X, Y, Boundary Layer Height Quality Flag, and Footprint Climatology. The flux footprints are computed using FFP as described in Kljun et al. (2015), https://doi.org/10.5194/gmd‐8‐3695‐2015, at 10-meter spatial resolution.
-
-This work is part of the ICOS Cities/PAUL Pilot Applications in Urban Landscapes project.

@@ -1,0 +1,22 @@
+[project]
+name = "zupload"
+version = "0.1.0"
+dependencies = [
+    "h5netcdf",
+    "icoscp_core",
+    "netcdf4",
+    "openpyxl",
+    "pandas",
+    "requests",
+    "typer",
+    "xarray",
+]
+requires-python = ">=3.8"
+
+[project.scripts]
+zupload = "zupload.zupload_cli:app"
+try-ingest = "zupload.try_ingest_cli:app"
+collection = "zupload.collection_cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
