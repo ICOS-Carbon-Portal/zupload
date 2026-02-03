@@ -98,7 +98,7 @@ zupload
 or
 
 ```bash
-zupload path/to/upload.xlsx
+zupload /path/to/spreadsheet.xlsx
 ```
 
 This will:
