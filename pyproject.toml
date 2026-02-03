@@ -1,5 +1,8 @@
 [project]
 name = "zupload"
+authors = [
+  { name = "Zois Zogopoulos", email = "zois.zogopoulos@mgeo.lu.se" },
+]
 version = "0.1.0"
 dependencies = [
     "h5netcdf",
