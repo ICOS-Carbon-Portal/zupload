@@ -93,10 +93,10 @@ def main(
             '--metadata-only',
             help='Upload metadata only and skip data file upload.'
         ),
-        upload_one: str | None = typer.Option(
+        upload_rows: str | None = typer.Option(
             None,
-            '--upload-one',
-            help='Upload one row by exact fileName or by upload_meta sheet row number.'
+            '--upload-rows',
+            help='Upload a single row or a contiguous range by upload_meta sheet row numbers, e.g. "5" or "5-12" (inclusive on both ends).'
         )
 ):
     run_logger: RunLogger | None = None
@@ -136,26 +136,48 @@ def main(
             landing_col = ws.max_column + 1
             ws.cell(row=1, column=landing_col).value = 'landingPageURI'
         df = pd.read_excel(spreadsheet, sheet_name='upload_meta')
-        if upload_one:
-            by_name = df[df['fileName'] == upload_one]
-            if not by_name.empty:
-                df = by_name
-            else:
+        if upload_rows is not None:
+            value = upload_rows.strip()
+            if '-' in value:
+                parts = value.split('-')
+                if len(parts) != 2 or not parts[0] or not parts[1]:
+                    typer.echo(
+                        f'Invalid --upload-rows value "{upload_rows}". '
+                        'Expected an integer like "5" or a range like "5-12".'
+                    )
+                    raise typer.Exit(code=1)
                 try:
-                    sheet_row = int(upload_one)
+                    start = int(parts[0])
+                    end = int(parts[1])
                 except ValueError:
                     typer.echo(
-                        f'No row found in upload_meta with fileName="{upload_one}", '
-                        'and --upload-one is not a valid row number.'
+                        f'Invalid --upload-rows value "{upload_rows}". '
+                        'Expected an integer like "5" or a range like "5-12".'
                     )
                     raise typer.Exit(code=1)
-                if sheet_row < 2 or sheet_row > (len(df) + 1):
+                if start > end:
                     typer.echo(
-                        f'Invalid row number "{sheet_row}". '
-                        f'Expected 2..{len(df) + 1} for upload_meta.'
+                        f'Invalid --upload-rows range "{upload_rows}": '
+                        'start must be <= end.'
                     )
                     raise typer.Exit(code=1)
-                df = df.iloc[[sheet_row - 2]]
+            else:
+                try:
+                    start = int(value)
+                except ValueError:
+                    typer.echo(
+                        f'Invalid --upload-rows value "{upload_rows}". '
+                        'Expected an integer like "5" or a range like "5-12".'
+                    )
+                    raise typer.Exit(code=1)
+                end = start
+            if start < 2 or end > (len(df) + 1):
+                typer.echo(
+                    f'Invalid --upload-rows range "{upload_rows}". '
+                    f'Expected 2..{len(df) + 1} for upload_meta.'
+                )
+                raise typer.Exit(code=1)
+            df = df.iloc[start - 2 : end - 1]
         for idx, row in df.iterrows():
             meta_json = make_json(meta=row)
             if upload:
