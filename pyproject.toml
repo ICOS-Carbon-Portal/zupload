@@ -5,11 +5,13 @@ authors = [
 ]
 version = "0.1.0"
 dependencies = [
+    "halo",
     "h5netcdf",
     "icoscp_core",
     "netcdf4",
     "openpyxl",
     "pandas",
+    "pyproj",
     "requests",
     "typer",
     "xarray",
@@ -23,3 +25,9 @@ collection = "zupload.collection_cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.black]
+line-length = 120
+
+[tool.ruff]
+line-length = 120

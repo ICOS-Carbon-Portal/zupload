@@ -26,7 +26,7 @@ def main(spreadsheet: str | None = None):
     envri_conf = get_conf(file_path=spreadsheet)
     df = pd.read_excel(spreadsheet, sheet_name='upload_meta')
     for _, row in df.iterrows():
-        components = build_try_ingest(file_path=row['fileLocation'],
+        components = build_try_ingest(file_path=Path(row['fileLocation']) / row['fileName'],
                                       obj_spec=row['objectSpecification'],
                                       envri_conf=envri_conf)
         try_ingestion(components=components)
