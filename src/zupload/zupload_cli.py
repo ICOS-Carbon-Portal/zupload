@@ -35,6 +35,7 @@ from zupload.constants.organizations import (
 from zupload.constants.stations import CITIES_FOR_STATION
 from zupload.constants.upload_descriptions import CITIES_UPLOAD_DESCRIPTIONS
 from zupload.logs import RunLogger
+from zupload.validation import validate_dataframe
 
 
 app = typer.Typer(help='Upload data & metadata to the specific portal.')
@@ -48,11 +49,73 @@ def _portal_display_name(envri_name: str) -> str:
     }.get(envri_name, envri_name.lower())
 
 
+def _resolve_spreadsheet(spreadsheet: str | None) -> Path:
+    if spreadsheet is None:
+        matches = list(Path.cwd().glob('*.xlsx'))
+        if not matches:
+            typer.echo('No .xlsx files found in current directory.')
+            raise typer.Exit(code=1)
+        if len(matches) > 1:
+            typer.echo('More than one spreadsheet found in current directory:')
+            for match in matches:
+                typer.echo(f'- {match.name}')
+            typer.echo('Please rerun by explicitly passing the spreadsheet path, for example:')
+            typer.echo('zupload ./your_spreadsheet.xlsx [options]')
+            raise typer.Exit(code=1)
+        return matches[0]
+    return Path(spreadsheet)
+
+
 def _to_landing_uri(pid: str) -> str:
     pid = pid.strip()
     if pid.startswith('http://') or pid.startswith('https://'):
         return pid
     return f'https://meta.icos-cp.eu/objects/{pid}'
+
+
+def _select_rows(df, rows_value, flag='--rows'):
+    """Slice df to the given upload_meta sheet row spec ("5" or "5-12", inclusive). Returns the sliced df."""
+    value = rows_value.strip()
+    if '-' in value:
+        parts = value.split('-')
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            typer.echo(
+                f'Invalid {flag} value "{rows_value}". '
+                'Expected an integer like "5" or a range like "5-12".'
+            )
+            raise typer.Exit(code=1)
+        try:
+            start = int(parts[0])
+            end = int(parts[1])
+        except ValueError:
+            typer.echo(
+                f'Invalid {flag} value "{rows_value}". '
+                'Expected an integer like "5" or a range like "5-12".'
+            )
+            raise typer.Exit(code=1)
+        if start > end:
+            typer.echo(
+                f'Invalid {flag} range "{rows_value}": '
+                'start must be <= end.'
+            )
+            raise typer.Exit(code=1)
+    else:
+        try:
+            start = int(value)
+        except ValueError:
+            typer.echo(
+                f'Invalid {flag} value "{rows_value}". '
+                'Expected an integer like "5" or a range like "5-12".'
+            )
+            raise typer.Exit(code=1)
+        end = start
+    if start < 2 or end > (len(df) + 1):
+        typer.echo(
+            f'Invalid {flag} range "{rows_value}". '
+            f'Expected 2..{len(df) + 1} for upload_meta.'
+        )
+        raise typer.Exit(code=1)
+    return df.iloc[start - 2 : end - 1]
 
 
 @app.command()
@@ -82,6 +145,45 @@ def fetch(
             payload = ast.literal_eval(resp.text)
     pprint(payload)
 
+@app.command()
+def validate(
+        spreadsheet: str | None = None,
+        rows: str | None = typer.Option(
+            None,
+            '--rows',
+            help='Validate a single row or a contiguous range by upload_meta sheet row numbers, e.g. "5" or "5-12" (inclusive on both ends).'
+        )
+):
+    spreadsheet = _resolve_spreadsheet(spreadsheet)
+    df = pd.read_excel(spreadsheet, sheet_name='upload_meta')
+    if rows is not None:
+        df = _select_rows(df, rows)
+    results = validate_dataframe(df)
+    total = len(results)
+    rows_with_errors = 0
+    rows_with_warnings = 0
+    ok_rows = 0
+    for result in results:
+        typer.echo(f'Row {result["row"]}: {result["fileName"]}')
+        issues = result['issues']
+        if not issues:
+            typer.echo('  ok')
+            ok_rows += 1
+            continue
+        has_error = any(severity == 'error' for severity, _ in issues)
+        has_warning = any(severity == 'warning' for severity, _ in issues)
+        if has_error:
+            rows_with_errors += 1
+        if has_warning:
+            rows_with_warnings += 1
+        for severity, message in issues:
+            typer.echo(f'  {severity}: {message}')
+    typer.echo(
+        f'{total} rows checked - {rows_with_errors} with errors, '
+        f'{rows_with_warnings} with warnings, {ok_rows} ok'
+    )
+
+
 @app.callback(invoke_without_command=True)
 def main(
         ctx: typer.Context,
@@ -93,9 +195,9 @@ def main(
             '--metadata-only',
             help='Upload metadata only and skip data file upload.'
         ),
-        upload_rows: str | None = typer.Option(
+        rows: str | None = typer.Option(
             None,
-            '--upload-rows',
+            '--rows',
             help='Upload a single row or a contiguous range by upload_meta sheet row numbers, e.g. "5" or "5-12" (inclusive on both ends).'
         )
 ):
@@ -105,21 +207,7 @@ def main(
     try:
         if extract_json:
             upload = False
-        if spreadsheet is None:
-            matches = list(Path.cwd().glob('*.xlsx'))
-            if not matches:
-                typer.echo('No .xlsx files found in current directory.')
-                raise typer.Exit(code=1)
-            if len(matches) > 1:
-                typer.echo('More than one spreadsheet found in current directory:')
-                for match in matches:
-                    typer.echo(f'- {match.name}')
-                typer.echo('Please rerun by explicitly passing the spreadsheet path, for example:')
-                typer.echo('zupload ./your_spreadsheet.xlsx [options]')
-                raise typer.Exit(code=1)
-            spreadsheet = matches[0]
-        else:
-            spreadsheet = Path(spreadsheet)
+        spreadsheet = _resolve_spreadsheet(spreadsheet)
         run_logger = RunLogger.start(spreadsheet=spreadsheet)
         envri_conf = get_conf(file_path=spreadsheet)
         if upload:
@@ -136,48 +224,8 @@ def main(
             landing_col = ws.max_column + 1
             ws.cell(row=1, column=landing_col).value = 'landingPageURI'
         df = pd.read_excel(spreadsheet, sheet_name='upload_meta')
-        if upload_rows is not None:
-            value = upload_rows.strip()
-            if '-' in value:
-                parts = value.split('-')
-                if len(parts) != 2 or not parts[0] or not parts[1]:
-                    typer.echo(
-                        f'Invalid --upload-rows value "{upload_rows}". '
-                        'Expected an integer like "5" or a range like "5-12".'
-                    )
-                    raise typer.Exit(code=1)
-                try:
-                    start = int(parts[0])
-                    end = int(parts[1])
-                except ValueError:
-                    typer.echo(
-                        f'Invalid --upload-rows value "{upload_rows}". '
-                        'Expected an integer like "5" or a range like "5-12".'
-                    )
-                    raise typer.Exit(code=1)
-                if start > end:
-                    typer.echo(
-                        f'Invalid --upload-rows range "{upload_rows}": '
-                        'start must be <= end.'
-                    )
-                    raise typer.Exit(code=1)
-            else:
-                try:
-                    start = int(value)
-                except ValueError:
-                    typer.echo(
-                        f'Invalid --upload-rows value "{upload_rows}". '
-                        'Expected an integer like "5" or a range like "5-12".'
-                    )
-                    raise typer.Exit(code=1)
-                end = start
-            if start < 2 or end > (len(df) + 1):
-                typer.echo(
-                    f'Invalid --upload-rows range "{upload_rows}". '
-                    f'Expected 2..{len(df) + 1} for upload_meta.'
-                )
-                raise typer.Exit(code=1)
-            df = df.iloc[start - 2 : end - 1]
+        if rows is not None:
+            df = _select_rows(df, rows)
         for idx, row in df.iterrows():
             typer.echo(f'Row {idx + 2}: {row["fileName"]}')
             meta_json = make_json(meta=row)
@@ -594,7 +642,6 @@ def extract_cities_upload_meta(
     return meta
 
 
-
 def make_json(meta: Series):
     description = (
         meta['abstract/description ']
@@ -624,7 +671,11 @@ def make_json(meta: Series):
         else str(meta.get('hashSum')).strip()
     )
     if not hash_sum:
-        hash_sum = calculate_hashsum(file_path=Path(meta['fileLocation']) / meta['fileName'])
+        data_path = Path(meta['fileLocation']) / meta['fileName']
+        if data_path.exists():
+            hash_sum = calculate_hashsum(file_path=data_path)
+        else:
+            typer.echo(f'Hash skipped (data file not found): {data_path}')
     json_meta = dict({
         'fileName': meta['fileName'],
         'hashSum': hash_sum,
