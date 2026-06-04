@@ -179,6 +179,7 @@ def main(
                 raise typer.Exit(code=1)
             df = df.iloc[start - 2 : end - 1]
         for idx, row in df.iterrows():
+            typer.echo(f'Row {idx + 2}: {row["fileName"]}')
             meta_json = make_json(meta=row)
             if upload:
                 data_url, landing_url = upload_meta(meta_json=meta_json, envri_conf=envri_conf)
