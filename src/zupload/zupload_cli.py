@@ -35,7 +35,7 @@ from zupload.constants.organizations import (
 from zupload.constants.stations import CITIES_FOR_STATION
 from zupload.constants.upload_descriptions import CITIES_UPLOAD_DESCRIPTIONS
 from zupload.logs import RunLogger
-from zupload.validation import validate_dataframe
+from zupload.validation import validate_columns, validate_dataframe
 
 
 app = typer.Typer(help='Upload data & metadata to the specific portal.')
@@ -126,6 +126,7 @@ def fetch(
             help='Landing page URL, object id, or object hash.'
         )
 ):
+    """Fetch and print dataset metadata from the ICOS portal by landing page URL, object id, or hash."""
     landing_uri = _to_landing_uri(pid)
     typer.echo(f'Fetching metadata for: {landing_uri}')
     resp = requests.get(
@@ -152,10 +153,78 @@ def validate(
             None,
             '--rows',
             help='Validate a single row or a contiguous range by upload_meta sheet row numbers, e.g. "5" or "5-12" (inclusive on both ends).'
+        ),
+        data_dir: str | None = typer.Option(
+            None,
+            '--data-dir',
+            help='Locate each data file by name under this directory, fill in fileLocation and hashSum where resolvable, and write a new <name>.filled.xlsx (the original spreadsheet is left unchanged).'
         )
 ):
+    """Check upload_meta rows for metadata problems without uploading or changing the spreadsheet."""
     spreadsheet = _resolve_spreadsheet(spreadsheet)
     df = pd.read_excel(spreadsheet, sheet_name='upload_meta')
+    schema_issues = validate_columns(df)
+    filled_path = None
+    resolved = 0
+    ambiguous = 0
+    not_found = 0
+    if data_dir is not None:
+        data_root = Path(data_dir)
+        if not data_root.is_dir():
+            typer.echo(f'--data-dir not found or not a directory: {data_dir}')
+            raise typer.Exit(code=1)
+        name_to_paths: dict[str, list[Path]] = {}
+        for candidate in data_root.rglob('*'):
+            if candidate.is_file():
+                name_to_paths.setdefault(candidate.name, []).append(candidate)
+        for col_name in ('fileLocation', 'hashSum'):
+            if col_name in df.columns:
+                df[col_name] = df[col_name].astype(object)
+        updates = []
+        for idx, row in df.iterrows():
+            file_name = row.get('fileName')
+            if pd.isna(file_name) or not str(file_name).strip():
+                continue
+            file_name = str(file_name).strip()
+            target = None
+            file_location = row.get('fileLocation')
+            if not pd.isna(file_location) and str(file_location).strip():
+                candidate = Path(str(file_location).strip()) / file_name
+                if candidate.exists():
+                    target = candidate
+            if target is None:
+                matches = name_to_paths.get(file_name, [])
+                if len(matches) == 1:
+                    target = matches[0]
+                elif len(matches) > 1:
+                    ambiguous += 1
+                    continue
+                else:
+                    not_found += 1
+                    continue
+            new_loc = str(target.parent.resolve())
+            df.at[idx, 'fileLocation'] = new_loc
+            updates.append((idx + 2, 'fileLocation', new_loc))
+            hash_sum = row.get('hashSum')
+            if pd.isna(hash_sum) or not str(hash_sum).strip():
+                new_hash = calculate_hashsum(file_path=target)
+                df.at[idx, 'hashSum'] = new_hash
+                updates.append((idx + 2, 'hashSum', new_hash))
+            resolved += 1
+        wb = load_workbook(spreadsheet)
+        ws = wb['upload_meta']
+        headers = {cell.value: i for i, cell in enumerate(ws[1], start=1)}
+        col_index = {}
+        for col_name in ('fileLocation', 'hashSum'):
+            c = headers.get(col_name)
+            if c is None:
+                c = ws.max_column + 1
+                ws.cell(row=1, column=c).value = col_name
+            col_index[col_name] = c
+        for sheet_row, col_name, value in updates:
+            ws.cell(row=sheet_row, column=col_index[col_name]).value = value
+        filled_path = spreadsheet.with_name(f'{spreadsheet.stem}.filled.xlsx')
+        wb.save(filled_path)
     if rows is not None:
         df = _select_rows(df, rows)
     results = validate_dataframe(df)
@@ -178,10 +247,25 @@ def validate(
             rows_with_warnings += 1
         for severity, message in issues:
             typer.echo(f'  {severity}: {message}')
+    if schema_issues:
+        typer.echo('Schema check:')
+        for severity, message in schema_issues:
+            typer.echo(f'  {severity}: {message}')
+    else:
+        typer.echo('Schema check: ok')
+    schema_errors = sum(1 for severity, _ in schema_issues if severity == 'error')
+    schema_warnings = sum(1 for severity, _ in schema_issues if severity == 'warning')
     typer.echo(
         f'{total} rows checked - {rows_with_errors} with errors, '
-        f'{rows_with_warnings} with warnings, {ok_rows} ok'
+        f'{rows_with_warnings} with warnings, {ok_rows} ok; '
+        f'{schema_errors} schema errors, {schema_warnings} schema warnings'
     )
+    if filled_path is not None:
+        typer.echo(f'Filled spreadsheet written to {filled_path}')
+        typer.echo(
+            f'Data resolution: {resolved} filled, {ambiguous} ambiguous '
+            f'(same filename in multiple places), {not_found} not found in --data-dir'
+        )
 
 
 @app.callback(invoke_without_command=True)
@@ -283,6 +367,7 @@ def generate(
             )
         ),
 ):
+    """Scaffold an upload_meta.xlsx for ICOS Cities footprint NetCDF files in a directory."""
     run_logger = RunLogger.start(spreadsheet=output)
     typer.echo(f'Scanning input directory: {directory}')
     try:
@@ -642,6 +727,17 @@ def extract_cities_upload_meta(
     return meta
 
 
+def _nan_to_none(obj):
+    """Recursively replace float NaN values with None so the payload is JSON-serializable."""
+    if isinstance(obj, dict):
+        return {key: _nan_to_none(value) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [_nan_to_none(item) for item in obj]
+    if isinstance(obj, float) and np.isnan(obj):
+        return None
+    return obj
+
+
 def make_json(meta: Series):
     description = (
         meta['abstract/description ']
@@ -698,7 +794,7 @@ def make_json(meta: Series):
                     'start': meta['startCov'],
                     'stop': meta['stopCov'],
                 },
-                'resolution': meta['resolution'],
+                'resolution': None if pd.isna(meta.get('resolution')) else meta.get('resolution'),
             },
             'forStation': (
                 None
@@ -724,7 +820,7 @@ def make_json(meta: Series):
         },
         'submitterId': meta['submitterID'],
     })
-    return json_meta
+    return _nan_to_none(json_meta)
 
 
 def upload_meta(meta_json: dict[str, Any], envri_conf: EnvriConfig) -> tuple[str, str]:

@@ -107,8 +107,17 @@ This will:
 - upload the metadata to the target portal,
 - upload the corresponding data files.
 
-Additional commands are available for validating uploads and preparing metadata
-without uploading data.
+Additional commands are available for preparing metadata without uploading
+data, and for validating an upload before you run it. The `validate` command
+inspects the spreadsheet rows and reports any problems without uploading
+anything or changing the spreadsheet. It separates findings into errors
+(clearly wrong input, such as a missing required field) and warnings (things
+that look suspicious but may be fine). It checks the metadata only, so it works
+even when the data files are not present locally.
+
+```bash
+zupload validate /path/to/spreadsheet.xlsx
+```
 
 ## Input spreadsheet
 

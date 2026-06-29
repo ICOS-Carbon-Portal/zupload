@@ -8,6 +8,61 @@ from pandas import Series
 from zupload.constants.object_specs import ALL_OBJECT_SPECS
 
 
+REQUIRED_COLUMNS = [
+    'fileName',
+    'fileLocation',
+    'isNextVersionOf',
+    'doiURI',
+    'objectSpecification',
+    'keywords',
+    'licenseUrl',
+    'title',
+    'startCov',
+    'stopCov',
+    'creatorURI',
+    'contributorURI',
+    'hostOrganizationURI',
+    'comment',
+    'created',
+    'submitterID',
+]
+
+
+OPTIONAL_COLUMNS = [
+    'abstract/description ',
+    'coverageURI',
+    'documentationURI',
+    'hashSum',
+    'forStation',
+    'variablesToIngest',
+    'resolution',
+]
+
+
+def validate_columns(df) -> list[tuple[str, str]]:
+    """Report upload_meta columns that make_json requires but are absent from the sheet."""
+    issues: list[tuple[str, str]] = []
+    for column in REQUIRED_COLUMNS:
+        if column not in df.columns:
+            issues.append(('error', f'{column} column is missing from the upload_meta sheet'))
+    for column in OPTIONAL_COLUMNS:
+        if column == 'abstract/description ':
+            if (
+                'abstract/description ' not in df.columns
+                and 'abstract/description' not in df.columns
+            ):
+                issues.append((
+                    'warning',
+                    'abstract/description column is optional and is missing from the upload_meta sheet',
+                ))
+        elif column not in df.columns:
+            issues.append((
+                'warning',
+                f'{column} column is optional and is missing from the upload_meta sheet',
+            ))
+    return issues
+
+
 def validate_row(row: Series) -> list[tuple[str, str]]:
     """Check one upload_meta row and return issues without raising."""
     issues: list[tuple[str, str]] = []
@@ -27,8 +82,21 @@ def validate_row(row: Series) -> list[tuple[str, str]]:
         'contributorURI',
     ]
     for field in required_fields:
-        if field not in row or is_blank(row.get(field)):
-            issues.append(('error', f'{field} is required and is missing or blank'))
+        if field in row and is_blank(row.get(field)):
+            issues.append(('error', f'{field} is required and is blank'))
+
+    expected_fields = [
+        'creatorURI',
+        'hostOrganizationURI',
+        'startCov',
+        'stopCov',
+    ]
+    for field in expected_fields:
+        if field in row and is_blank(row.get(field)):
+            issues.append(('warning', f'{field} is blank'))
+
+    if 'licenseUrl' in row and is_blank(row.get('licenseUrl')):
+        issues.append(('warning', 'licenseUrl is blank; the portal will assign its default licence'))
 
     if not is_blank(row.get('keywords')):
         try:
