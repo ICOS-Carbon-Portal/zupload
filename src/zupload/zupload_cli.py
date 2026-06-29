@@ -148,7 +148,11 @@ def fetch(
 
 @app.command()
 def validate(
-        spreadsheet: str | None = None,
+        spreadsheet: str | None = typer.Option(
+            None,
+            '--spreadsheet',
+            help='Spreadsheet to use (.xlsx). Auto-detected if the current directory has a single .xlsx.'
+        ),
         rows: str | None = typer.Option(
             None,
             '--rows',
@@ -271,9 +275,19 @@ def validate(
 @app.callback(invoke_without_command=True)
 def main(
         ctx: typer.Context,
-        spreadsheet: str | None = None,
-        extract_json: bool = False,
-        upload: bool = True,
+        spreadsheet: str | None = typer.Option(
+            None,
+            '--spreadsheet',
+            help='Spreadsheet to use (.xlsx). Auto-detected if the current directory has a single .xlsx.'
+        ),
+        extract_json: bool = typer.Option(
+            False,
+            help="Write each row's metadata JSON next to its data file and skip the upload."
+        ),
+        upload: bool = typer.Option(
+            True,
+            help='Upload to the portal (default). Use --no-upload for a dry run that builds metadata without uploading or writing files.'
+        ),
         metadata_only: bool = typer.Option(
             False,
             '--metadata-only',
@@ -320,12 +334,15 @@ def main(
                 wb.save(spreadsheet)
                 if not metadata_only:
                     upload_data(file_path=Path(row['fileLocation']) / row['fileName'], data_url=data_url)
-            else:
+            elif extract_json:
                 p = Path(row['fileLocation']) / row['fileName']
                 json_path = p.with_suffix('.json')
                 write_json(file=json_path, content=meta_json)
                 pprint(meta_json)
                 typer.echo(f'JSON written to {json_path}')
+            else:
+                pprint(meta_json)
+                typer.echo('Dry run: metadata built, nothing uploaded or written (use --extract-json to write JSON).')
         if upload:
             typer.echo(f'Updated upload URLs in {spreadsheet}')
     except Exception as e:
@@ -337,10 +354,29 @@ def main(
 
 @app.command()
 def generate(
-        directory: Path = typer.Argument(Path('.'), exists=True, file_okay=False, dir_okay=True),
-        output: Path = typer.Option(Path('upload_meta.xlsx'), '--output', '-o'),
-        portal: str = typer.Option('icos', '--portal'),
-        spec_label: str = typer.Option('Non-standard spatial product', '--spec-label'),
+        directory: Path = typer.Argument(
+            Path('.'),
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            help='Directory of NetCDF data files to scan (defaults to the current directory).'
+        ),
+        output: Path = typer.Option(
+            Path('upload_meta.xlsx'),
+            '--output',
+            '-o',
+            help='Spreadsheet to create or update (default: upload_meta.xlsx).'
+        ),
+        portal: str = typer.Option(
+            'icos',
+            '--portal',
+            help='Target portal: icos, sites, or cities.'
+        ),
+        spec_label: str = typer.Option(
+            'Non-standard spatial product',
+            '--spec-label',
+            help='Object specification label; must match a known spec in constants/object_specs.py.'
+        ),
         hash_mode: str = typer.Option(
             'auto',
             '--hash-mode',
