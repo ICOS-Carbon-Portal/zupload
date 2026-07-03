@@ -108,7 +108,18 @@ This will:
 - upload the corresponding data files.
 
 Additional commands are available for preparing metadata without uploading
-data, and for validating an upload before you run it. The `validate` command
+data, and for validating an upload before you run it.
+
+When you want to prepare metadata without uploading, there are two options.
+`--no-upload` does a dry run: it builds the metadata and prints it, but uploads
+nothing and writes no files. `--extract-json` instead writes each row's
+metadata JSON next to its data file.
+
+```bash
+zupload /path/to/spreadsheet.xlsx --extract-json
+```
+
+The `validate` command
 inspects the spreadsheet rows and reports any problems without uploading
 anything or changing the spreadsheet. It separates findings into errors
 (clearly wrong input, such as a missing required field) and warnings (things
@@ -117,6 +128,16 @@ even when the data files are not present locally.
 
 ```bash
 zupload validate /path/to/spreadsheet.xlsx
+```
+
+If the data files are available locally but the spreadsheet is missing their
+`hashSum` or `fileLocation`, point `validate` at the folder that contains them
+with `--data-dir`. It finds each file by name (searching subfolders as well),
+fills in `fileLocation` and `hashSum`, and writes a new `<name>.filled.xlsx`,
+leaving the original spreadsheet untouched.
+
+```bash
+zupload validate /path/to/spreadsheet.xlsx --data-dir /path/to/data
 ```
 
 ## Input spreadsheet
