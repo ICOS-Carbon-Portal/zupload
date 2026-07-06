@@ -24,9 +24,11 @@ At a high level, `zupload` turns a spreadsheet into a series of upload actions.
    The spreadsheet describes your datasets: where the files are located, which
    metadata belongs to each file, and which ICOS / ENVRI portal to use.
 
-2. **`zupload` reads and validates the input**  
-   The tool loads the spreadsheet, checks that required fields are present, and
-   prepares the metadata in the format expected by the target services.
+2. **`zupload` reads the input**  
+   The tool loads the spreadsheet and prepares the metadata in the format
+   expected by the target services. The upload flow itself does not check the
+   input, so a missing field surfaces as a raw error; you can check the input
+   up front with the `validate` command (described later).
 
 3. **Metadata is converted to JSON**  
    For each data file, `zupload` builds a metadata JSON payload based on the
@@ -34,7 +36,7 @@ At a high level, `zupload` turns a spreadsheet into a series of upload actions.
    uploading anything.
 
 4. **Metadata is uploaded first**  
-   The metadata JSON is sent to the portal’s metadata service. If this
+   The metadata JSON is sent to the portal's metadata service. If this
    succeeds, the service returns an upload URL for the actual data file.
 
 5. **Data files are uploaded**  
@@ -42,7 +44,7 @@ At a high level, `zupload` turns a spreadsheet into a series of upload actions.
    ingestion process.
 
 This separation between metadata and data uploads makes it easier to validate,
-debug, and reproduce uploads—especially when working with many files.
+debug, and reproduce uploads, especially when working with many files.
 
 ## Installation
 
@@ -68,7 +70,7 @@ rather than as a standalone binary.
 
 `zupload` relies on the standard ICOS authentication flow provided by the
 `icoscp_core` library. This means you don't have to worry about manually
-handling tokens — as long as you're logged in with ICOS credentials, the 
+handling tokens: as long as you're logged in with ICOS credentials, the 
 library will handle retrieving and attaching the necessary authentication to
 every request.
 
@@ -87,8 +89,9 @@ After activating your Python virtual environment and installing the library,
 the `zupload` commands are available directly on the command line.
 
 At a minimum, you point `zupload` to a spreadsheet file and run the upload
-command. If no file is provided, the tool will try to use the first `.xlsx`
-file it finds in the current directory.
+command. If no file is provided, `zupload` uses the single `.xlsx` file in the
+current directory when there is exactly one; if there are several `.xlsx` files
+it stops with an error and asks you to specify which one.
 
 Typical usage looks like this:
 
@@ -106,6 +109,22 @@ This will:
 - prepare metadata for each listed data file,
 - upload the metadata to the target portal,
 - upload the corresponding data files.
+
+Use `--metadata-only` to upload the metadata but skip uploading the actual data
+file.
+
+```bash
+zupload /path/to/spreadsheet.xlsx --metadata-only
+```
+
+Use `--rows` to restrict the run to specific rows of the `upload_meta` sheet, by
+that sheet's row number. `--rows 5` runs a single row, and `--rows 5-12` runs a
+contiguous, inclusive range. This works on both the default upload command and
+the `validate` command.
+
+```bash
+zupload /path/to/spreadsheet.xlsx --rows 5-12
+```
 
 Additional commands are available for preparing metadata without uploading
 data, and for validating an upload before you run it.
@@ -138,6 +157,23 @@ leaving the original spreadsheet untouched.
 
 ```bash
 zupload validate /path/to/spreadsheet.xlsx --data-dir /path/to/data
+```
+
+The `fetch` command retrieves the existing metadata for an object from the
+portal and prints it. It is a read-only lookup and uploads nothing. You can pass
+a PID, a hash, or a landing-page URL.
+
+```bash
+zupload fetch <pid|hash|landing-url>
+```
+
+The `generate` command scaffolds a new upload spreadsheet from a directory of
+data files. It is currently specialized for ICOS Cities footprint NetCDF files,
+so most users preparing a normal upload should start from the example
+spreadsheets instead.
+
+```bash
+zupload generate /path/to/directory
 ```
 
 ## Input spreadsheet
