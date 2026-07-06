@@ -169,8 +169,8 @@ zupload fetch <pid|hash|landing-url>
 
 The `generate` command scaffolds a new upload spreadsheet from a directory of
 data files. It is currently specialized for ICOS Cities footprint NetCDF files,
-so most users preparing a normal upload should start from the example
-spreadsheets instead.
+so most users preparing a normal upload should start from an existing working
+spreadsheet instead.
 
 ```bash
 zupload generate /path/to/directory
@@ -187,9 +187,10 @@ depending on the type of data and the target service. For this reason, the
 spreadsheet format is intentionally not fully fixed or documented in detail
 here.
 
-Instead, example spreadsheets are provided and should be used as a starting
-point for new uploads. These examples show the required sheets, columns, and
-value formats for common upload scenarios.
+Example spreadsheets are not yet included with the project. Until they are, base
+your new spreadsheet on an existing working spreadsheet, and use its
+`instructions` sheet (described below) as your guide to the required sheets,
+columns, and value formats.
 
 Spreadsheets also contain an **`instructions` sheet** with additional guidance
 and explanations for the different fields. This sheet is meant for human
@@ -201,14 +202,15 @@ When preparing a spreadsheet:
 - some fields may contain JSON-formatted values (for example lists of variables
   or keywords).
 
-Using the provided examples is the recommended way to ensure your spreadsheet
-matches what `zupload` expects.
+Basing your spreadsheet on an existing working spreadsheet, and following its
+`instructions` sheet, is the recommended way to ensure your spreadsheet matches
+what `zupload` expects.
 
 ## Things to be aware of
 
 - `zupload` expects the spreadsheet structure and column names to match what
-  the tool reads internally. Using the provided example spreadsheets is 
-  strongly recommended.
+  the tool reads internally. Basing your spreadsheet on an existing working
+  spreadsheet, and following its `instructions` sheet, is strongly recommended.
 - Some spreadsheet fields are expected to contain valid JSON (for example lists
   of variables or keywords). Make sure these values use proper JSON syntax.
 - Metadata is uploaded before data files. If metadata upload fails, the data
@@ -227,4 +229,5 @@ Contributors:
 - Jonathan Thiry  
 - Maggie Hellström  
 - Oleg Mirzov  
-- Ute Karstens
+- Ute Karstens  
+- Claude
