@@ -16,7 +16,7 @@ dependencies = [
     "typer",
     "xarray",
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 
 [project.scripts]
 zupload = "zupload.zupload_cli:app"
