@@ -8,6 +8,16 @@ from pandas import Series
 from zupload.constants.object_specs import ALL_OBJECT_SPECS
 
 
+def _looks_like_hash(value: str) -> bool:
+    """Return True if value is a plausible object hash (base64url or hex)."""
+    candidate = value.strip()
+    if len(candidate) < 16:
+        return False
+    return all(
+        char.isalnum() or char in '-_=' for char in candidate
+    )
+
+
 REQUIRED_COLUMNS = [
     'fileName',
     'fileLocation',
@@ -140,7 +150,6 @@ def validate_row(row: Series) -> list[tuple[str, str]]:
         'creatorURI',
         'hostOrganizationURI',
         'licenseUrl',
-        'isNextVersionOf',
         'doiURI',
         'documentationURI',
     ]
@@ -149,6 +158,25 @@ def validate_row(row: Series) -> list[tuple[str, str]]:
             value = str(row.get(field)).strip()
             if not value.startswith(('http://', 'https://')):
                 issues.append(('warning', f'{field} does not look like a URI'))
+
+    if not is_blank(row.get('isNextVersionOf')):
+        prev = str(row.get('isNextVersionOf')).strip()
+        prev_values = [prev]
+        if prev.startswith('['):
+            try:
+                parsed = json.loads(prev)
+            except (ValueError, TypeError):
+                parsed = None
+            if isinstance(parsed, list):
+                prev_values = [str(item).strip() for item in parsed]
+        for value in prev_values:
+            if not (
+                value.startswith(('http://', 'https://')) or _looks_like_hash(value)
+            ):
+                issues.append((
+                    'warning',
+                    'isNextVersionOf does not look like a URI or hash',
+                ))
 
     date_fields = ['created', 'startCov', 'stopCov']
     parsed_dates: dict[str, Any] = {}

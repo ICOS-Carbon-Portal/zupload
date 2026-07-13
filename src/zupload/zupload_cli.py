@@ -808,11 +808,25 @@ def make_json(meta: Series):
             hash_sum = calculate_hashsum(file_path=data_path)
         else:
             typer.echo(f'Hash skipped (data file not found): {data_path}')
+    prev_raw = meta['isNextVersionOf']
+    is_next_version_of = None
+    if not pd.isna(prev_raw):
+        if isinstance(prev_raw, str):
+            stripped = prev_raw.strip()
+            if stripped.startswith('['):
+                try:
+                    parsed = json.loads(stripped)
+                except json.JSONDecodeError:
+                    parsed = None
+                is_next_version_of = parsed if isinstance(parsed, list) else stripped
+            else:
+                is_next_version_of = stripped
+        else:
+            is_next_version_of = prev_raw
     json_meta = dict({
         'fileName': meta['fileName'],
         'hashSum': hash_sum,
-        'isNextVersionOf':
-            None if pd.isna(meta['isNextVersionOf']) else meta['isNextVersionOf'],
+        'isNextVersionOf': is_next_version_of,
         'preExistingDoi': None if pd.isna(meta['doiURI']) else meta['doiURI'],
         'objectSpecification': meta['objectSpecification'],
         'references': {
