@@ -5,6 +5,7 @@ from typing import Any, Literal
 import json
 import ast
 import re
+from collections import defaultdict
 from datetime import datetime as dt
 from urllib.parse import urlparse, urlunparse
 # Related third party imports.
@@ -251,19 +252,40 @@ def validate(
             rows_with_warnings += 1
         for severity, message in issues:
             typer.echo(f'  {severity}: {message}')
+    typer.echo('')
+    typer.echo('-- Summary --')
     if schema_issues:
         typer.echo('Schema check:')
         for severity, message in schema_issues:
             typer.echo(f'  {severity}: {message}')
-    else:
-        typer.echo('Schema check: ok')
     schema_errors = sum(1 for severity, _ in schema_issues if severity == 'error')
     schema_warnings = sum(1 for severity, _ in schema_issues if severity == 'warning')
     typer.echo(
         f'{total} rows checked - {rows_with_errors} with errors, '
-        f'{rows_with_warnings} with warnings, {ok_rows} ok; '
+        f'{rows_with_warnings} rows with warnings, {ok_rows} ok; '
         f'{schema_errors} schema errors, {schema_warnings} schema warnings'
     )
+    warnings_by_message = defaultdict(list)
+    for result in results:
+        for severity, message in result['issues']:
+            if severity == 'warning':
+                warnings_by_message[message].append(result['row'])
+    if warnings_by_message:
+        typer.echo('Warnings by type:')
+        ordered = sorted(
+            warnings_by_message.items(),
+            key=lambda item: -len(item[1]),
+        )
+        width = max(len(str(len(rows))) for _, rows in ordered)
+        for message, rows in ordered:
+            count = len(rows)
+            if count == total:
+                suffix = '(all rows)'
+            elif count <= 10:
+                suffix = 'rows: ' + ', '.join(str(r) for r in sorted(rows))
+            else:
+                suffix = f'({count} rows)'
+            typer.echo(f'  {count:>{width}}  {message}  {suffix}')
     if filled_path is not None:
         typer.echo(f'Filled spreadsheet written to {filled_path}')
         typer.echo(
