@@ -319,6 +319,16 @@ def main(
             None,
             '--rows',
             help='Upload a single row or a contiguous range by upload_meta sheet row numbers, e.g. "5" or "5-12" (inclusive on both ends).'
+        ),
+        staging: bool = typer.Option(
+            False,
+            '--staging',
+            help='Upload metadata to the portal staging environment instead of production.'
+        ),
+        yes: bool = typer.Option(
+            False,
+            '--yes', '-y',
+            help='Skip the production upload confirmation prompt.'
         )
 ):
     run_logger: RunLogger | None = None
@@ -331,7 +341,14 @@ def main(
         run_logger = RunLogger.start(spreadsheet=spreadsheet)
         envri_conf = get_conf(file_path=spreadsheet)
         if upload:
-            typer.echo(f'Using portal: {_portal_display_name(envri_conf.envri)}')
+            env_label = 'STAGING' if staging else 'PRODUCTION'
+            typer.echo(
+                f'Using portal: {_portal_display_name(envri_conf.envri)}  |  environment: {env_label}'
+            )
+            if not staging and not yes:
+                typer.echo('You are about to upload to PRODUCTION.')
+                if not typer.confirm('Continue?'):
+                    raise typer.Abort()
         wb = load_workbook(spreadsheet)
         ws = wb['upload_meta']
         headers = {cell.value: i for i, cell in enumerate(ws[1], start=1)}
@@ -350,7 +367,7 @@ def main(
             typer.echo(f'Row {idx + 2}: {row["fileName"]}')
             meta_json = make_json(meta=row)
             if upload:
-                data_url, landing_url = upload_meta(meta_json=meta_json, envri_conf=envri_conf)
+                data_url, landing_url = upload_meta(meta_json=meta_json, envri_conf=envri_conf, staging=staging)
                 ws.cell(row=idx + 2, column=data_url_col).value = data_url
                 ws.cell(row=idx + 2, column=landing_col).value = landing_url
                 wb.save(spreadsheet)
@@ -895,11 +912,11 @@ def make_json(meta: Series):
     return _nan_to_none(json_meta)
 
 
-def upload_meta(meta_json: dict[str, Any], envri_conf: EnvriConfig) -> tuple[str, str]:
+def upload_meta(meta_json: dict[str, Any], envri_conf: EnvriConfig, staging: bool = False) -> tuple[str, str]:
     """Upload metadata package to specified portal."""
     typer.echo(f'Uploading metadata for: {meta_json["fileName"]}', nl=False)
     resp = requests.post(
-        url=envri_conf.meta_url,
+        url=envri_conf.upload_url(staging),
         json=meta_json,
         cookies=get_cookie_jar()
     )

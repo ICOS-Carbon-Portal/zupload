@@ -14,6 +14,9 @@ class EnvriConfig:
     try_ingest_url: str
     who_am_i: str
 
+    def upload_url(self, staging: bool) -> str:
+        return self.meta_staging_url if staging else self.meta_url
+
 
 ICOS_CONFIG = EnvriConfig(
     envri='ICOS',

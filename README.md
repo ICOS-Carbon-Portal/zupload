@@ -126,6 +126,17 @@ the `validate` command.
 zupload /path/to/spreadsheet.xlsx --rows 5-12
 ```
 
+By default `zupload` uploads to the portal's production environment. Use
+`--staging` to send the metadata to the portal's staging environment instead,
+which is useful for testing. Because production uploads are hard to undo, the
+tool asks you to confirm before a production upload; pass `--yes` to skip that
+confirmation, for example in scripts. Staging must already be set up for your
+submitter on the portal side, otherwise the upload is rejected.
+
+```bash
+zupload /path/to/spreadsheet.xlsx --staging
+```
+
 Additional commands are available for preparing metadata without uploading
 data, and for validating an upload before you run it.
 
