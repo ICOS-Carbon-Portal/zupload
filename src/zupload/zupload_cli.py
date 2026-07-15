@@ -162,14 +162,13 @@ def validate(
         data_dir: str | None = typer.Option(
             None,
             '--data-dir',
-            help='Locate each data file by name under this directory, fill in fileLocation and hashSum where resolvable, and write a new <name>.filled.xlsx (the original spreadsheet is left unchanged).'
+            help='Locate each data file by name under this directory, then fill in fileLocation and hashSum where resolvable and update the spreadsheet in place. A backup is written under ./logs/.'
         )
 ):
     """Check upload_meta rows for metadata problems without uploading or changing the spreadsheet."""
     spreadsheet = _resolve_spreadsheet(spreadsheet)
     df = pd.read_excel(spreadsheet, sheet_name='upload_meta')
     schema_issues = validate_columns(df)
-    filled_path = None
     resolved = 0
     ambiguous = 0
     not_found = 0
@@ -178,58 +177,65 @@ def validate(
         if not data_root.is_dir():
             typer.echo(f'--data-dir not found or not a directory: {data_dir}')
             raise typer.Exit(code=1)
-        name_to_paths: dict[str, list[Path]] = {}
-        for candidate in data_root.rglob('*'):
-            if candidate.is_file():
-                name_to_paths.setdefault(candidate.name, []).append(candidate)
-        for col_name in ('fileLocation', 'hashSum'):
-            if col_name in df.columns:
-                df[col_name] = df[col_name].astype(object)
-        updates = []
-        for idx, row in df.iterrows():
-            file_name = row.get('fileName')
-            if pd.isna(file_name) or not str(file_name).strip():
-                continue
-            file_name = str(file_name).strip()
-            target = None
-            file_location = row.get('fileLocation')
-            if not pd.isna(file_location) and str(file_location).strip():
-                candidate = Path(str(file_location).strip()) / file_name
-                if candidate.exists():
-                    target = candidate
-            if target is None:
-                matches = name_to_paths.get(file_name, [])
-                if len(matches) == 1:
-                    target = matches[0]
-                elif len(matches) > 1:
-                    ambiguous += 1
+        run_logger = RunLogger.start(spreadsheet=spreadsheet)
+        try:
+            name_to_paths: dict[str, list[Path]] = {}
+            for candidate in data_root.rglob('*'):
+                if candidate.is_file():
+                    name_to_paths.setdefault(candidate.name, []).append(candidate)
+            for col_name in ('fileLocation', 'hashSum'):
+                if col_name in df.columns:
+                    df[col_name] = df[col_name].astype(object)
+            updates = []
+            for idx, row in df.iterrows():
+                file_name = row.get('fileName')
+                if pd.isna(file_name) or not str(file_name).strip():
                     continue
-                else:
-                    not_found += 1
-                    continue
-            new_loc = str(target.parent.resolve())
-            df.at[idx, 'fileLocation'] = new_loc
-            updates.append((idx + 2, 'fileLocation', new_loc))
-            hash_sum = row.get('hashSum')
-            if pd.isna(hash_sum) or not str(hash_sum).strip():
-                new_hash = calculate_hashsum(file_path=target)
-                df.at[idx, 'hashSum'] = new_hash
-                updates.append((idx + 2, 'hashSum', new_hash))
-            resolved += 1
-        wb = load_workbook(spreadsheet)
-        ws = wb['upload_meta']
-        headers = {cell.value: i for i, cell in enumerate(ws[1], start=1)}
-        col_index = {}
-        for col_name in ('fileLocation', 'hashSum'):
-            c = headers.get(col_name)
-            if c is None:
-                c = ws.max_column + 1
-                ws.cell(row=1, column=c).value = col_name
-            col_index[col_name] = c
-        for sheet_row, col_name, value in updates:
-            ws.cell(row=sheet_row, column=col_index[col_name]).value = value
-        filled_path = spreadsheet.with_name(f'{spreadsheet.stem}.filled.xlsx')
-        wb.save(filled_path)
+                file_name = str(file_name).strip()
+                target = None
+                file_location = row.get('fileLocation')
+                if not pd.isna(file_location) and str(file_location).strip():
+                    candidate = Path(str(file_location).strip()) / file_name
+                    if candidate.exists():
+                        target = candidate
+                if target is None:
+                    matches = name_to_paths.get(file_name, [])
+                    if len(matches) == 1:
+                        target = matches[0]
+                    elif len(matches) > 1:
+                        ambiguous += 1
+                        continue
+                    else:
+                        not_found += 1
+                        continue
+                new_loc = str(target.parent.resolve())
+                df.at[idx, 'fileLocation'] = new_loc
+                updates.append((idx + 2, 'fileLocation', new_loc))
+                hash_sum = row.get('hashSum')
+                if pd.isna(hash_sum) or not str(hash_sum).strip():
+                    new_hash = calculate_hashsum(file_path=target)
+                    df.at[idx, 'hashSum'] = new_hash
+                    updates.append((idx + 2, 'hashSum', new_hash))
+                resolved += 1
+            if updates:
+                wb = load_workbook(spreadsheet)
+                ws = wb['upload_meta']
+                headers = {cell.value: i for i, cell in enumerate(ws[1], start=1)}
+                col_index = {}
+                for col_name in ('fileLocation', 'hashSum'):
+                    c = headers.get(col_name)
+                    if c is None:
+                        c = ws.max_column + 1
+                        ws.cell(row=1, column=c).value = col_name
+                    col_index[col_name] = c
+                for sheet_row, col_name, value in updates:
+                    ws.cell(row=sheet_row, column=col_index[col_name]).value = value
+                wb.save(spreadsheet)
+        except Exception as e:
+            run_logger.finish(status='error', error=str(e))
+            typer.echo(f'Failed to update spreadsheet: {e}')
+            raise typer.Exit(code=1)
+        run_logger.finish(status='ok')
     if rows is not None:
         df = _select_rows(df, rows)
     results = validate_dataframe(df)
@@ -286,12 +292,48 @@ def validate(
             else:
                 suffix = f'({count} rows)'
             typer.echo(f'  {count:>{width}}  {message}  {suffix}')
-    if filled_path is not None:
-        typer.echo(f'Filled spreadsheet written to {filled_path}')
+    if data_dir is not None:
+        considered = resolved + ambiguous + not_found
+        if resolved > 0:
+            detail = []
+            if not_found:
+                detail.append(f'{not_found} not found')
+            if ambiguous:
+                detail.append(f'{ambiguous} duplicate names')
+            suffix = f' ({", ".join(detail)})' if detail else ''
+            typer.echo(f'{resolved} of {considered} data files found{suffix}; spreadsheet updated.')
+        else:
+            typer.echo(
+                f'0 of {considered} data files found under {data_dir}. '
+                'The spreadsheet was left unchanged.'
+            )
+        typer.echo(f'Logs saved to {run_logger.run_dir}')
+    else:
+        found = 0
+        missing = 0
+        for _, row in df.iterrows():
+            file_name = row.get('fileName')
+            if pd.isna(file_name) or not str(file_name).strip():
+                continue
+            file_location = row.get('fileLocation')
+            if pd.isna(file_location) or not str(file_location).strip():
+                missing += 1
+                continue
+            if (Path(str(file_location)) / str(file_name)).exists():
+                found += 1
+            else:
+                missing += 1
         typer.echo(
-            f'Data resolution: {resolved} filled, {ambiguous} ambiguous '
-            f'(same filename in multiple places), {not_found} not found in --data-dir'
+            f'Data files: {found} found, {missing} not found at their fileLocation'
         )
+        if missing > 0:
+            typer.echo(
+                'To locate the files and fill in fileLocation and hashSum, run:'
+            )
+            typer.echo(
+                f'  zupload validate --spreadsheet {spreadsheet} '
+                '--data-dir <path to your data files>'
+            )
 
 
 @app.callback(invoke_without_command=True)
@@ -390,6 +432,7 @@ def main(
         raise
     if run_logger is not None:
         run_logger.finish(status='ok')
+        typer.echo(f'Logs saved to {run_logger.run_dir}')
 
 @app.command()
 def generate(
@@ -508,6 +551,7 @@ def generate(
             wb.save(output)
             typer.echo(f'Updated columns in {output}: {", ".join(selected)}')
             run_logger.finish(status='ok')
+            typer.echo(f'Logs saved to {run_logger.run_dir}')
             return
         object_spec = ALL_OBJECT_SPECS[spec_label]
         files = sorted(p.name for p in directory.iterdir() if p.is_file())
@@ -680,6 +724,7 @@ def generate(
         run_logger.finish(status='error', error=str(e))
         raise
     run_logger.finish(status='ok')
+    typer.echo(f'Logs saved to {run_logger.run_dir}')
 
 
 def make_spatial_box(lat_min: float, lat_max: float, lon_min: float, lon_max: float) -> dict[str, Any]:
