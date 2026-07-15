@@ -154,7 +154,10 @@ inspects the spreadsheet rows and reports any problems without uploading
 anything or changing the spreadsheet. It separates findings into errors
 (clearly wrong input, such as a missing required field) and warnings (things
 that look suspicious but may be fine). It checks the metadata only, so it works
-even when the data files are not present locally.
+even when the data files are not present locally. It also reports, for each
+row, whether it can find the data file at its `fileLocation`; when a file
+cannot be found it tells you how to rerun with `--data-dir` to locate the
+files and fill in the missing details.
 
 ```bash
 zupload validate /path/to/spreadsheet.xlsx
@@ -162,9 +165,9 @@ zupload validate /path/to/spreadsheet.xlsx
 
 If the data files are available locally but the spreadsheet is missing their
 `hashSum` or `fileLocation`, point `validate` at the folder that contains them
-with `--data-dir`. It finds each file by name (searching subfolders as well),
-fills in `fileLocation` and `hashSum`, and writes a new `<name>.filled.xlsx`,
-leaving the original spreadsheet untouched.
+with `--data-dir`. It finds each file by name (searching subfolders as well)
+and fills in `fileLocation` and `hashSum` directly in the spreadsheet. If it
+finds no matching files under that folder, it leaves the spreadsheet unchanged.
 
 ```bash
 zupload validate /path/to/spreadsheet.xlsx --data-dir /path/to/data
