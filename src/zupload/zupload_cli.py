@@ -25,9 +25,10 @@ from zupload.utils import (
     get_conf,
     get_cookie_jar,
     write_json,
-    get_prev_by_name
+    get_prev_by_name,
+    get_dataset_type
 )
-from zupload.constants.envri import EnvriConfig
+from zupload.constants.envri import DatasetType, EnvriConfig, ICOS_CONFIG
 from zupload.constants.object_specs import ALL_OBJECT_SPECS
 from zupload.constants.organizations import (
     ORG_DISPLAY_NAMES,
@@ -48,6 +49,71 @@ def _portal_display_name(envri_name: str) -> str:
         'ICOS': 'icos',
         'SITES': 'sites',
     }.get(envri_name, envri_name.lower())
+
+
+def _is_blank(value: Any) -> bool:
+    """Return True when a spreadsheet cell is missing, NaN, or whitespace only."""
+    if value is None:
+        return True
+    try:
+        if pd.isna(value):
+            return True
+    except (TypeError, ValueError):
+        return False
+    return not str(value).strip()
+
+
+def _detect_dataset_type(df, envri_conf: EnvriConfig) -> DatasetType:
+    """Detect the specificInfo shape once per run from the first object specification."""
+    spec = None
+    if 'objectSpecification' in df.columns:
+        for value in df['objectSpecification']:
+            if not _is_blank(value):
+                spec = str(value).strip()
+                break
+    if spec is None:
+        typer.echo('No objectSpecification found; assuming spatioTemporal metadata.')
+        return 'spatioTemporal'
+    try:
+        dataset_type = get_dataset_type(
+            object_spec=spec,
+            portal=_portal_display_name(envri_conf.envri)
+        )
+    except Exception as e:
+        typer.echo(f'Dataset type lookup failed ({e}); assuming spatioTemporal metadata.')
+        return 'spatioTemporal'
+    if dataset_type is None:
+        typer.echo(
+            'Dataset type unknown for the object specification; '
+            'assuming spatioTemporal metadata.'
+        )
+        return 'spatioTemporal'
+    typer.echo(f'Dataset type: {dataset_type}')
+    return dataset_type
+
+
+def _resolve_known_specs(df, envri_conf: EnvriConfig) -> set[str]:
+    """Return the sheet's object specifications that the portal itself recognises."""
+    known: set[str] = set()
+    if 'objectSpecification' not in df.columns:
+        return known
+    portal = _portal_display_name(envri_conf.envri)
+    seen: set[str] = set()
+    for value in df['objectSpecification']:
+        if _is_blank(value):
+            continue
+        spec = str(value).strip()
+        if spec in seen:
+            continue
+        seen.add(spec)
+        try:
+            resolved = get_dataset_type(object_spec=spec, portal=portal)
+        except Exception:
+            # The portal is unreachable; fall back to the local spec list only.
+            return known
+        if resolved is not None:
+            known.add(spec)
+    return known
 
 
 def _resolve_spreadsheet(spreadsheet: str | None) -> Path:
@@ -168,7 +234,14 @@ def validate(
     """Check upload_meta rows for metadata problems without uploading or changing the spreadsheet."""
     spreadsheet = _resolve_spreadsheet(spreadsheet)
     df = pd.read_excel(spreadsheet, sheet_name='upload_meta')
-    schema_issues = validate_columns(df)
+    try:
+        envri_conf = get_conf(file_path=spreadsheet)
+    except typer.Exit:
+        typer.echo('Using icos for the dataset type lookup.')
+        envri_conf = ICOS_CONFIG
+    known_specs = _resolve_known_specs(df, envri_conf)
+    dataset_type = _detect_dataset_type(df, envri_conf)
+    schema_issues = validate_columns(df, dataset_type=dataset_type)
     resolved = 0
     ambiguous = 0
     not_found = 0
@@ -238,7 +311,11 @@ def validate(
         run_logger.finish(status='ok')
     if rows is not None:
         df = _select_rows(df, rows)
-    results = validate_dataframe(df)
+    results = validate_dataframe(
+        df,
+        dataset_type=dataset_type,
+        known_specs=known_specs,
+    )
     total = len(results)
     rows_with_errors = 0
     rows_with_warnings = 0
@@ -405,9 +482,10 @@ def main(
         df = pd.read_excel(spreadsheet, sheet_name='upload_meta')
         if rows is not None:
             df = _select_rows(df, rows)
+        dataset_type = _detect_dataset_type(df, envri_conf)
         for idx, row in df.iterrows():
             typer.echo(f'Row {idx + 2}: {row["fileName"]}')
-            meta_json = make_json(meta=row)
+            meta_json = make_json(meta=row, dataset_type=dataset_type)
             if upload:
                 data_url, landing_url = upload_meta(meta_json=meta_json, envri_conf=envri_conf, staging=staging)
                 ws.cell(row=idx + 2, column=data_url_col).value = data_url
@@ -858,7 +936,7 @@ def _nan_to_none(obj):
     return obj
 
 
-def make_json(meta: Series):
+def make_json(meta: Series, dataset_type: DatasetType = 'spatioTemporal'):
     description = (
         meta['abstract/description ']
         if 'abstract/description ' in meta
@@ -907,19 +985,66 @@ def make_json(meta: Series):
                 is_next_version_of = stripped
         else:
             is_next_version_of = prev_raw
-    json_meta = dict({
-        'fileName': meta['fileName'],
-        'hashSum': hash_sum,
-        'isNextVersionOf': is_next_version_of,
-        'preExistingDoi': None if pd.isna(meta['doiURI']) else meta['doiURI'],
-        'objectSpecification': meta['objectSpecification'],
-        'references': {
-            'keywords': json.loads(meta['keywords']),
-            'licence': meta['licenseUrl'],
-            'autodeprecateSameFilenameObjects': False,
-            'duplicateFilenameAllowed': True,
-        },
-        'specificInfo': {
+    production = {
+        'creator': meta['creatorURI'],
+        'contributors': json.loads(meta['contributorURI']),
+        'hostOrganization': meta['hostOrganizationURI'],
+        'comment': None if pd.isna(meta['comment']) else meta['comment'],
+        'sources': [],
+        'documentation': documentation,
+        'creationDate': meta['created'],
+    }
+    if dataset_type == 'stationTimeSeries':
+        station = meta.get('stationURI')
+        if _is_blank(station):
+            station = meta.get('forStation')
+        station = None if _is_blank(station) else str(station).strip()
+        instrument = None
+        instrument_raw = meta.get('instrumentURI')
+        if not _is_blank(instrument_raw):
+            if isinstance(instrument_raw, str):
+                stripped = instrument_raw.strip()
+                if stripped.startswith('['):
+                    try:
+                        parsed = json.loads(stripped)
+                    except json.JSONDecodeError:
+                        parsed = None
+                    instrument = parsed if isinstance(parsed, list) else stripped
+                else:
+                    instrument = stripped
+            else:
+                instrument = instrument_raw
+        sampling_height = None
+        sampling_height_raw = meta.get('samplingHeight')
+        if not _is_blank(sampling_height_raw):
+            try:
+                sampling_height = float(str(sampling_height_raw).strip())
+            except (TypeError, ValueError):
+                sampling_height = None
+        n_rows = None
+        n_rows_raw = meta.get('numRows')
+        if not _is_blank(n_rows_raw):
+            try:
+                n_rows = int(float(str(n_rows_raw).strip()))
+            except (TypeError, ValueError):
+                n_rows = None
+        acquisition_interval = None
+        if not _is_blank(meta.get('startCov')) and not _is_blank(meta.get('stopCov')):
+            acquisition_interval = {
+                'start': meta['startCov'],
+                'stop': meta['stopCov'],
+            }
+        specific_info: dict[str, Any] = {
+            'station': station,
+            'instrument': instrument,
+            'samplingHeight': sampling_height,
+            'acquisitionInterval': acquisition_interval,
+            'nRows': n_rows,
+            'production': production,
+            'spatial': spatial,
+        }
+    else:
+        specific_info = {
             'title': meta['title'],
             'description': description,
             'spatial': spatial,
@@ -935,23 +1060,27 @@ def make_json(meta: Series):
                 if pd.isna(meta.get('forStation')) or not str(meta.get('forStation')).strip()
                 else meta.get('forStation')
             ),
-            'production': {
-                'creator': meta['creatorURI'],
-                'contributors': json.loads(meta['contributorURI']),
-                'hostOrganization': meta['hostOrganizationURI'],
-                    'comment':
-                        None if pd.isna(meta['comment']) else meta['comment'],
-                    'sources': [],
-                    'documentation': documentation,
-                'creationDate': meta['created'],
-            },
+            'production': production,
             'variables': (
                 None
                 if pd.isna(meta.get('variablesToIngest'))
                 or not meta.get('variablesToIngest')
                 else json.loads(meta['variablesToIngest'])
             )
+        }
+    json_meta = dict({
+        'fileName': meta['fileName'],
+        'hashSum': hash_sum,
+        'isNextVersionOf': is_next_version_of,
+        'preExistingDoi': None if pd.isna(meta['doiURI']) else meta['doiURI'],
+        'objectSpecification': meta['objectSpecification'],
+        'references': {
+            'keywords': json.loads(meta['keywords']),
+            'licence': meta['licenseUrl'],
+            'autodeprecateSameFilenameObjects': False,
+            'duplicateFilenameAllowed': True,
         },
+        'specificInfo': specific_info,
         'submitterId': meta['submitterID'],
     })
     return _nan_to_none(json_meta)

@@ -8,6 +8,16 @@ from pandas import Series
 from zupload.constants.object_specs import ALL_OBJECT_SPECS
 
 
+def _normalise_scheme(value: str) -> str:
+    """Strip the http/https distinction so spec URIs compare equal either way."""
+    candidate = value.strip()
+    if candidate.startswith('https://'):
+        return candidate[len('https://'):]
+    if candidate.startswith('http://'):
+        return candidate[len('http://'):]
+    return candidate
+
+
 def _looks_like_hash(value: str) -> bool:
     """Return True if value is a plausible object hash (base64url or hex)."""
     candidate = value.strip()
@@ -16,6 +26,11 @@ def _looks_like_hash(value: str) -> bool:
     return all(
         char.isalnum() or char in '-_=' for char in candidate
     )
+
+
+_KNOWN_SPECS_NORM = {
+    _normalise_scheme(value) for value in ALL_OBJECT_SPECS.values()
+}
 
 
 REQUIRED_COLUMNS = [
@@ -43,19 +58,36 @@ OPTIONAL_COLUMNS = [
     'coverageURI',
     'documentationURI',
     'hashSum',
-    'forStation',
-    'variablesToIngest',
-    'resolution',
 ]
 
 
-def validate_columns(df) -> list[tuple[str, str]]:
+STATION_OPTIONAL_COLUMNS = [
+    'numRows',
+    'stationURI',
+    'instrumentURI',
+    'samplingHeight',
+]
+
+
+SPATIOTEMPORAL_OPTIONAL_COLUMNS = [
+    'resolution',
+    'variablesToIngest',
+    'forStation',
+]
+
+
+def validate_columns(df, dataset_type: str | None = None) -> list[tuple[str, str]]:
     """Report upload_meta columns that make_json requires but are absent from the sheet."""
     issues: list[tuple[str, str]] = []
     for column in REQUIRED_COLUMNS:
         if column not in df.columns:
             issues.append(('error', f'{column} column is missing from the upload_meta sheet'))
-    for column in OPTIONAL_COLUMNS:
+    optional_columns = list(OPTIONAL_COLUMNS)
+    if dataset_type in (None, 'stationTimeSeries'):
+        optional_columns += STATION_OPTIONAL_COLUMNS
+    if dataset_type in (None, 'spatioTemporal'):
+        optional_columns += SPATIOTEMPORAL_OPTIONAL_COLUMNS
+    for column in optional_columns:
         if column == 'abstract/description ':
             if (
                 'abstract/description ' not in df.columns
@@ -73,9 +105,14 @@ def validate_columns(df) -> list[tuple[str, str]]:
     return issues
 
 
-def validate_row(row: Series) -> list[tuple[str, str]]:
+def validate_row(
+        row: Series,
+        dataset_type: str | None = None,
+        known_specs: set[str] | None = None,
+) -> list[tuple[str, str]]:
     """Check one upload_meta row and return issues without raising."""
     issues: list[tuple[str, str]] = []
+    is_station = dataset_type == 'stationTimeSeries'
 
     def is_blank(value: Any) -> bool:
         if pd.isna(value):
@@ -91,9 +128,19 @@ def validate_row(row: Series) -> list[tuple[str, str]]:
         'keywords',
         'contributorURI',
     ]
+    if is_station:
+        # StationTimeSeriesDto has no title field.
+        required_fields.remove('title')
     for field in required_fields:
         if field in row and is_blank(row.get(field)):
             issues.append(('error', f'{field} is required and is blank'))
+
+    if is_station:
+        if is_blank(row.get('stationURI')) and is_blank(row.get('forStation')):
+            issues.append((
+                'error',
+                'station is required; both stationURI and forStation are blank',
+            ))
 
     expected_fields = [
         'creatorURI',
@@ -101,6 +148,10 @@ def validate_row(row: Series) -> list[tuple[str, str]]:
         'startCov',
         'stopCov',
     ]
+    if is_station:
+        # acquisitionInterval is optional in the station branch.
+        expected_fields.remove('startCov')
+        expected_fields.remove('stopCov')
     for field in expected_fields:
         if field in row and is_blank(row.get(field)):
             issues.append(('warning', f'{field} is blank'))
@@ -141,9 +192,22 @@ def validate_row(row: Series) -> list[tuple[str, str]]:
                     'coverageURI is neither a URI nor valid JSON'
                 ))
 
+    if not is_blank(row.get('numRows')):
+        num_rows_raw = str(row.get('numRows')).strip()
+        try:
+            num_rows = float(num_rows_raw)
+        except (TypeError, ValueError):
+            issues.append(('error', 'numRows is not a positive integer'))
+        else:
+            if num_rows <= 0 or not num_rows.is_integer():
+                issues.append(('error', 'numRows is not a positive integer'))
+
     if not is_blank(row.get('objectSpecification')):
         spec = str(row.get('objectSpecification')).strip()
-        if spec not in ALL_OBJECT_SPECS.values():
+        resolved_specs = {
+            _normalise_scheme(value) for value in (known_specs or set())
+        }
+        if _normalise_scheme(spec) not in _KNOWN_SPECS_NORM | resolved_specs:
             issues.append(('error', 'objectSpecification is not a known spec URI'))
 
     uri_fields = [
@@ -203,13 +267,21 @@ def validate_row(row: Series) -> list[tuple[str, str]]:
     return issues
 
 
-def validate_dataframe(df) -> list[dict[str, Any]]:
+def validate_dataframe(
+        df,
+        dataset_type: str | None = None,
+        known_specs: set[str] | None = None,
+) -> list[dict[str, Any]]:
     """Validate every row and return structured results without printing."""
     results: list[dict[str, Any]] = []
     for idx, row in df.iterrows():
         results.append({
             'row': idx + 2,
             'fileName': row['fileName'],
-            'issues': validate_row(row=row),
+            'issues': validate_row(
+                row=row,
+                dataset_type=dataset_type,
+                known_specs=known_specs,
+            ),
         })
     return results

@@ -13,7 +13,7 @@ from halo import Halo
 import pandas as pd
 import typer
 # Local application/library specific imports.
-from zupload.constants.envri import ENVRIES, EnvriConfig, Envri
+from zupload.constants.envri import ENVRIES, DatasetType, EnvriConfig, Envri
 
 GET_PREV_BY_NAME_QUERY = """
 PREFIX cpmeta: <http://meta.icos-cp.eu/ontologies/cpmeta/>
@@ -29,6 +29,25 @@ WHERE {
     FILTER EXISTS {?dobj cpmeta:hasSizeInBytes []}
 }
 """
+
+GET_DATASET_TYPE_QUERY = """
+PREFIX cpmeta: <http://meta.icos-cp.eu/ontologies/cpmeta/>
+SELECT ?dsType
+WHERE {
+    VALUES ?spec {
+        <#http_anchor>
+        <#https_anchor>
+    }
+    ?spec cpmeta:hasSpecificDatasetType ?dsType .
+}
+"""
+
+DATASET_TYPE_BY_SEGMENT: dict[str, DatasetType] = {
+    'stationTimeSeriesDataset': 'stationTimeSeries',
+    'spatioTemporalDataset': 'spatioTemporal',
+}
+
+_DATASET_TYPE_CACHE: dict[tuple[str, str], DatasetType | None] = {}
 
 
 def calculate_hashsum(file_path: str | Path, transient: bool = False) -> str:
@@ -71,6 +90,41 @@ def get_prev_by_name(
         return None
     prev_uri = sparql_res.bindings[0]['dobj'].uri
     return prev_uri.rsplit('/', 1)[-1]
+
+
+def get_dataset_type(
+        object_spec: str,
+        portal: str = 'icos'
+) -> DatasetType | None:
+    """Ask the portal which specificInfo branch an object specification uses."""
+    portal_norm = portal.strip().lower()
+    spec_norm = object_spec.strip()
+    cache_key = (spec_norm, portal_norm)
+    if cache_key in _DATASET_TYPE_CACHE:
+        return _DATASET_TYPE_CACHE[cache_key]
+    # The metadata store holds ICOS spec URIs under http://, while spreadsheets
+    # often write https://. SPARQL treats the two as different URIs, so query both.
+    if spec_norm.startswith('https://'):
+        https_spec = spec_norm
+        http_spec = 'http://' + spec_norm[len('https://'):]
+    elif spec_norm.startswith('http://'):
+        http_spec = spec_norm
+        https_spec = 'https://' + spec_norm[len('http://'):]
+    else:
+        http_spec = spec_norm
+        https_spec = spec_norm
+    client = cities if portal_norm in {'cities', 'icoscities'} else icos
+    query = GET_DATASET_TYPE_QUERY \
+        .replace('#http_anchor', http_spec) \
+        .replace('#https_anchor', https_spec)
+    sparql_res = client.meta.sparql_select(query=query)
+    dataset_type: DatasetType | None = None
+    if sparql_res.bindings:
+        ds_type_uri = sparql_res.bindings[0]['dsType'].uri
+        segment = ds_type_uri.rsplit('/', 1)[-1]
+        dataset_type = DATASET_TYPE_BY_SEGMENT.get(segment)
+    _DATASET_TYPE_CACHE[cache_key] = dataset_type
+    return dataset_type
 
 
 def get_conf(file_path: Path) -> EnvriConfig:
