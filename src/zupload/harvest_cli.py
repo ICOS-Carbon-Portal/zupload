@@ -105,7 +105,7 @@ def _run_logged(spreadsheet: Path, work) -> None:
 
     The CLI does not finalize the run log by itself, so every exit path has to close it.
     """
-    run_logger = RunLogger.start(spreadsheet=spreadsheet)
+    run_logger = RunLogger.start(spreadsheet=spreadsheet, prefix='harvest')
     try:
         work()
     except typer.Exit as e:
