@@ -195,213 +195,74 @@ zupload generate /path/to/directory
 
 ## Harvesting metadata from the portal (`harvest`)
 
-`harvest` works in the opposite direction to `zupload`: instead of sending a
-spreadsheet to the portal, it brings the portal back into a spreadsheet. It
-only ever writes to a spreadsheet; it uploads nothing.
+`harvest` does the reverse of `zupload`: it retrieves metadata from the ICOS or Cities portal and writes it to a `zupload` spreadsheet. It does not upload anything.
 
-`harvest` is installed as its own command, not as a `zupload` subcommand.
+`harvest` is installed as a separate command rather than as a `zupload` subcommand.
 
-It has two modes:
+It can either:
 
-- **Build a new spreadsheet** from one or more landing page URIs, with
-  `--landing-page`. No input spreadsheet is needed. This is the recommended
-  way to start.
-- **Fill in an existing spreadsheet** whose `upload_meta` sheet already has
-  the `landingPageURI` column filled in, by pointing `harvest` at the file.
+* create a new spreadsheet from one or more landing page URIs, or
+* fill metadata into an existing spreadsheet containing `landingPageURI` values.
 
-### Building a new spreadsheet from landing page URIs
+### Create a spreadsheet from landing pages
 
-Give `harvest` one or more landing page URIs and it fetches those objects and
-writes a brand-new workbook containing both sheets `zupload` expects. The
-`--landing-page` flag is repeatable, and produces one row per URI.
+Use `--landing-page` to create a new spreadsheet directly from portal objects:
 
 ```bash
 harvest --landing-page https://meta.icos-cp.eu/objects/6TNdmGyjojb8iLTQ3acDs3-F
 harvest --landing-page <uri-a> --landing-page <uri-b> --output my_sheet.xlsx
 ```
 
-`--output PATH` names the workbook; without it, the file is `harvest.xlsx` in
-the current directory.
+The flag can be repeated to harvest several objects. Unless `--output` is given, the result is written to `harvest.xlsx`.
 
-**A generated sheet carries every column `zupload` reads**, left blank where
-the portal has nothing to put in them. This is why generating is the
-recommended starting point: the sheet is complete by construction, so nothing
-is missing except the values only you can supply. Running `zupload validate`
-on a generated sheet reports no schema errors and no schema warnings.
+The generated workbook contains the sheets and metadata columns expected by `zupload`. Values that cannot be obtained from the portal are left blank.
 
-In practice a generated sheet needs only one thing filled in before `zupload`
-will take it: **`fileLocation`**, the directory holding the data file, which is
-local information the portal does not have. Fill it with:
+In particular, `fileLocation` must be supplied locally before uploading. If the files are available on disk, it can be filled automatically with:
 
 ```bash
 zupload validate --spreadsheet <sheet> --data-dir <dir>
 ```
 
-`harvest` will not write over an existing file. If the output path is already
-taken it stops with an error such as
-`harvest.xlsx already exists, and harvest will not write over it.` and suggests
-either `--output <other path>` or moving the existing file out of the way.
-Note that `--overwrite` is **not** the way to replace an output file: that flag
-only ever means "replace cells that disagree with the portal", and in this mode
-it does nothing (`harvest` prints a note saying so).
+The portal is inferred from the landing page URI. All objects in one generated spreadsheet must belong to the same portal.
 
-The `envri_info` sheet is created with a single `portal` value derived from the
-landing page host, so both portals work with no extra flag: `meta.icos-cp.eu`
-gives `icos` and `citymeta.icos-cp.eu` gives `icoscities`. Because a
-spreadsheet names exactly one portal, all the URIs in one run must be on the
-same host; a mixed set stops with an error listing each host and how many URIs
-it had.
+For uploads, keeping different dataset types in separate spreadsheets is recommended.
 
-`--landing-page` cannot be combined with a spreadsheet path or with `--rows`.
-Each combination stops with an error explaining why.
+### Fill an existing spreadsheet
 
-`--dry-run` writes no workbook. It prints the portal, the number of rows, and
-the full list of columns it would create, leaving only the `logs/` directory
-behind.
-
-A URI that cannot be fetched still gets a row, carrying just its
-`landingPageURI`, so a later plain `harvest` on the sheet retries it. If every
-URI fails, no workbook is written at all.
-
-Running plain `harvest` on a freshly generated sheet reports no changes and
-leaves the file byte-identical, so there is no "generate, then harvest again"
-step to remember: the two modes agree.
-
-The columns are the ones `zupload` reads, in the order used by the spreadsheet
-template. Which columns appear depends on the dataset types involved: a single
-station-timeseries object gives 26 columns, and adding a spatiotemporal object
-brings it to 29 — the union of the two, with `resolution`, `forStation`, and
-`variablesToIngest` appended after the station-specific block.
-
-When the URIs span both dataset types `harvest` still writes the sheet, but
-warns:
-
-```text
-Warning: these URIs mix dataset types (spatioTemporal, stationTimeSeries). zupload uses a single dataset type per upload, so one sheet per type is safer.
-```
-
-The reason is that `zupload` picks one dataset type per upload run and applies
-it to every row, so on a mixed sheet it would build the wrong `specificInfo`
-for the rows of the minority type. Keeping one sheet per dataset type is the
-safe habit.
-
-### Filling in an existing spreadsheet
-
-Point `harvest` at an `.xlsx` whose `upload_meta` sheet already has the
-`landingPageURI` column filled in, and it fetches each object's metadata from
-the portal and writes it into the remaining columns of the same sheet, in
-place.
-
-The intended workflow is:
-
-1. fill in `landingPageURI` for the objects you care about,
-2. run `harvest` to pull their metadata into the sheet,
-3. review and edit the sheet by hand,
-4. run `zupload` to upload the updated metadata.
+`harvest` can also populate an existing `.xlsx` file whose `upload_meta` sheet already contains `landingPageURI` values:
 
 ```bash
-harvest                                  # picks the only *.xlsx in CWD
+harvest
 harvest /path/to/spreadsheet.xlsx
-harvest sheet.xlsx --rows 5              # one row by upload_meta row number
-harvest sheet.xlsx --rows 5-12           # contiguous range, inclusive
-harvest sheet.xlsx --dry-run             # report what would change, write nothing
-harvest sheet.xlsx --overwrite           # replace cells that disagree with the portal
+harvest sheet.xlsx --rows 5
+harvest sheet.xlsx --rows 5-12
+harvest sheet.xlsx --dry-run
+harvest sheet.xlsx --overwrite
 ```
 
-Spreadsheet resolution works exactly as it does for `zupload`: leave the path
-out and `harvest` uses the single `.xlsx` file in the current directory, and
-stops with an error if there are several. `--rows` also behaves the same way,
-taking `upload_meta` sheet row numbers, either a single row (`--rows 5`) or a
-contiguous, inclusive range (`--rows 5-12`).
+By default, `harvest` fills blank cells only. Existing values that differ from the portal are kept and reported. Use `--overwrite` if you want portal values to replace them.
 
-### What `harvest` writes
+`--dry-run` reports what would change without modifying the workbook.
 
-When filling an existing sheet, `harvest` writes only to blank cells by
-default. If a cell already holds a value
-that disagrees with the portal, it leaves your value in place, reports the
-difference, and tells you to rerun with `--overwrite` to replace them. This is
-deliberate: work you entered by hand is never destroyed unless you ask for it.
+As with `zupload`, omitting the spreadsheet path uses the single `.xlsx` file in the current directory.
 
-Values are compared intelligently, so a cell is not flagged as disagreeing
-merely because it is written differently. Hexadecimal and base64url hash sums,
-`http://` and `https://`, `3744` and `3744.0`, and timestamps ending in `Z`
-versus `+00:00` all count as agreement. As a result, running `harvest` twice in
-a row changes nothing the second time.
+### Before uploading a harvested spreadsheet
 
-`--dry-run` reports what would change and writes nothing at all; the
-spreadsheet is left byte-identical.
-
-`harvest` never writes `fileLocation`, because that column holds a local
-directory path rather than portal metadata. Use
-`zupload validate --spreadsheet <sheet> --data-dir <dir>` to fill that column.
-
-Columns that the sheet does not yet have are added as needed. A row with a
-blank `landingPageURI` is skipped. A row whose object cannot be fetched is
-reported and skipped without aborting the run, so the remaining rows are still
-harvested.
-
-`harvest` works against both the ICOS and Cities portals with no extra flags,
-because it derives the portal host from the landing page URI itself. If that
-host disagrees with the portal named in the `envri_info` sheet, it warns once
-and carries on.
-
-Because it writes to a spreadsheet, `harvest` writes a run log directory under
-`./logs/` in both modes — `./logs/harvest-<timestamp>/` — keeping before and
-after copies of the workbook, and prints `Logs saved to <dir>` when it
-finishes. This is the same logging the upload command, `generate`, and
-`validate --data-dir` do, which use a `zupload-<timestamp>` directory instead.
-In generation mode there is no "before" copy, because the spreadsheet does not
-exist yet when the run starts.
-
-### Things to know before you upload a harvested sheet
-
-These apply to both modes.
-
-**Re-uploading a harvested sheet updates the same object's metadata in place.**
-It does not create a new version. This is the point of the workflow: harvest an
-object, edit a field such as the title, run `zupload`, and the object's
-metadata is updated.
-
-**`isNextVersionOf` mirrors what the portal reports.** `harvest` copies the
-object's own `isNextVersionOf`, converted to id form: if the portal reports no
-predecessor the cell is left blank, one predecessor becomes a bare id such as
-`LY07JgXMJYhqEVrvfRosjqNI`, and several become a JSON list of ids.
-
-Two things follow from that:
-
-- **The column takes an object id, not a URL.** Putting a landing page URI in
-  it is rejected with HTTP 400 and
-  `Could not parse SHA-256 hashsum, expected a 32- or 18-byte array`. The
-  32-byte form is the full `hashSum`; the 18-byte form is the object id.
-- **`harvest` must not invent a value here, and neither should you.** An
-  object's identity *is* its hash: the object id is literally the first 24
-  characters of the 43-character `hashSum`. Since `harvest` also copies
-  `hashSum`, writing that same id into `isNextVersionOf` would make the object
-  point at itself, which the portal rejects with
-  `Data/doc object cannot be a next version of itself`. Edit that cell only to
-  correct a genuine mistake in the original upload.
-
-**`keywords` usually comes back empty, and that is fine.** Object-level
-keywords are optional, and the portal holds none for many objects, so
-`harvest` leaves the cell blank. Note also that the keywords shown on a landing
-page may belong to the object specification rather than to the object itself,
-which is why `harvest` does not copy those.
-
-**Staging can reject harvested metadata for reasons that are not about your
-sheet.** Harvested metadata references production resources — people,
-organisations, stations, instruments, spatial coverages — and the staging
-metadata store can lag production. A staging upload may therefore fail on a
-reference that is perfectly valid in production, for example
-`Invalid contributor URL http://meta.icos-cp.eu/resources/people/Stijn_Naus`
-for a person who exists in production but is missing from staging. Staging
-checks the shape of the payload well, but it can give false negatives on
-resolving references.
-
-You can check a harvested sheet at any point without uploading:
+A harvested spreadsheet can be reviewed, edited, and uploaded again with `zupload`.
 
 ```bash
 zupload validate --spreadsheet /path/to/spreadsheet.xlsx
+zupload /path/to/spreadsheet.xlsx
 ```
+
+Keep in mind:
+
+* `fileLocation` is never harvested because it refers to a local directory.
+* Uploading a harvested row updates the metadata of the existing object; it does not create a new version.
+* `isNextVersionOf` is copied from the portal and should normally be left unchanged.
+* Staging may reject references that are valid in production if the staging metadata store is not fully synchronized.
+
+`harvest` supports both the ICOS and Cities portals and writes run logs under `./logs/harvest-<timestamp>/`.
 
 ## Input spreadsheet
 
