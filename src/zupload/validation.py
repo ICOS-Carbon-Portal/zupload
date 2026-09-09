@@ -39,7 +39,6 @@ REQUIRED_COLUMNS = [
     'isNextVersionOf',
     'doiURI',
     'objectSpecification',
-    'keywords',
     'licenseUrl',
     'title',
     'startCov',
@@ -47,7 +46,6 @@ REQUIRED_COLUMNS = [
     'creatorURI',
     'contributorURI',
     'hostOrganizationURI',
-    'comment',
     'created',
     'submitterID',
 ]
@@ -58,6 +56,10 @@ OPTIONAL_COLUMNS = [
     'coverageURI',
     'documentationURI',
     'hashSum',
+    # Both are optional in the payload, so an absent column is not a schema problem:
+    # make_json reads them with .get() and harvest omits columns the portal cannot fill.
+    'keywords',
+    'comment',
 ]
 
 
@@ -119,13 +121,15 @@ def validate_row(
             return True
         return not str(value).strip()
 
+    # keywords is deliberately absent here. Object-level keywords are optional: the
+    # portal's own objects routinely carry none, and the keywords a landing page shows
+    # may come from the object specification rather than from the object itself.
     required_fields = [
         'fileName',
         'title',
         'objectSpecification',
         'submitterID',
         'created',
-        'keywords',
         'contributorURI',
     ]
     if is_station:
