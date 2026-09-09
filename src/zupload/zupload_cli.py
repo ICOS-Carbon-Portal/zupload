@@ -28,6 +28,7 @@ from zupload.utils import (
     get_prev_by_name,
     get_dataset_type
 )
+from zupload.cli_shared import resolve_spreadsheet, select_rows
 from zupload.constants.envri import DatasetType, EnvriConfig, ICOS_CONFIG
 from zupload.constants.object_specs import ALL_OBJECT_SPECS
 from zupload.constants.organizations import (
@@ -116,73 +117,11 @@ def _resolve_known_specs(df, envri_conf: EnvriConfig) -> set[str]:
     return known
 
 
-def _resolve_spreadsheet(spreadsheet: str | None) -> Path:
-    if spreadsheet is None:
-        matches = list(Path.cwd().glob('*.xlsx'))
-        if not matches:
-            typer.echo('No .xlsx files found in current directory.')
-            raise typer.Exit(code=1)
-        if len(matches) > 1:
-            typer.echo('More than one spreadsheet found in current directory:')
-            for match in matches:
-                typer.echo(f'- {match.name}')
-            typer.echo('Please rerun by explicitly passing the spreadsheet path, for example:')
-            typer.echo('zupload ./your_spreadsheet.xlsx [options]')
-            raise typer.Exit(code=1)
-        return matches[0]
-    return Path(spreadsheet)
-
-
 def _to_landing_uri(pid: str) -> str:
     pid = pid.strip()
     if pid.startswith('http://') or pid.startswith('https://'):
         return pid
     return f'https://meta.icos-cp.eu/objects/{pid}'
-
-
-def _select_rows(df, rows_value, flag='--rows'):
-    """Slice df to the given upload_meta sheet row spec ("5" or "5-12", inclusive). Returns the sliced df."""
-    value = rows_value.strip()
-    if '-' in value:
-        parts = value.split('-')
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            typer.echo(
-                f'Invalid {flag} value "{rows_value}". '
-                'Expected an integer like "5" or a range like "5-12".'
-            )
-            raise typer.Exit(code=1)
-        try:
-            start = int(parts[0])
-            end = int(parts[1])
-        except ValueError:
-            typer.echo(
-                f'Invalid {flag} value "{rows_value}". '
-                'Expected an integer like "5" or a range like "5-12".'
-            )
-            raise typer.Exit(code=1)
-        if start > end:
-            typer.echo(
-                f'Invalid {flag} range "{rows_value}": '
-                'start must be <= end.'
-            )
-            raise typer.Exit(code=1)
-    else:
-        try:
-            start = int(value)
-        except ValueError:
-            typer.echo(
-                f'Invalid {flag} value "{rows_value}". '
-                'Expected an integer like "5" or a range like "5-12".'
-            )
-            raise typer.Exit(code=1)
-        end = start
-    if start < 2 or end > (len(df) + 1):
-        typer.echo(
-            f'Invalid {flag} range "{rows_value}". '
-            f'Expected 2..{len(df) + 1} for upload_meta.'
-        )
-        raise typer.Exit(code=1)
-    return df.iloc[start - 2 : end - 1]
 
 
 @app.command()
@@ -232,7 +171,7 @@ def validate(
         )
 ):
     """Check upload_meta rows for metadata problems without uploading or changing the spreadsheet."""
-    spreadsheet = _resolve_spreadsheet(spreadsheet)
+    spreadsheet = resolve_spreadsheet(spreadsheet)
     df = pd.read_excel(spreadsheet, sheet_name='upload_meta')
     try:
         envri_conf = get_conf(file_path=spreadsheet)
@@ -310,7 +249,7 @@ def validate(
             raise typer.Exit(code=1)
         run_logger.finish(status='ok')
     if rows is not None:
-        df = _select_rows(df, rows)
+        df = select_rows(df, rows)
     results = validate_dataframe(
         df,
         dataset_type=dataset_type,
@@ -456,7 +395,7 @@ def main(
     try:
         if extract_json:
             upload = False
-        spreadsheet = _resolve_spreadsheet(spreadsheet)
+        spreadsheet = resolve_spreadsheet(spreadsheet)
         run_logger = RunLogger.start(spreadsheet=spreadsheet)
         envri_conf = get_conf(file_path=spreadsheet)
         if upload:
@@ -481,7 +420,7 @@ def main(
             ws.cell(row=1, column=landing_col).value = 'landingPageURI'
         df = pd.read_excel(spreadsheet, sheet_name='upload_meta')
         if rows is not None:
-            df = _select_rows(df, rows)
+            df = select_rows(df, rows)
         dataset_type = _detect_dataset_type(df, envri_conf)
         for idx, row in df.iterrows():
             typer.echo(f'Row {idx + 2}: {row["fileName"]}')
@@ -965,12 +904,19 @@ def make_json(meta: Series, dataset_type: DatasetType = 'spatioTemporal'):
         else str(meta.get('hashSum')).strip()
     )
     if not hash_sum:
-        data_path = Path(meta['fileLocation']) / meta['fileName']
-        if data_path.exists():
-            hash_sum = calculate_hashsum(file_path=data_path)
+        file_location = meta.get('fileLocation')
+        file_name = meta.get('fileName')
+        if _is_blank(file_location) or _is_blank(file_name):
+            typer.echo('Hash skipped (fileLocation or fileName is blank).')
         else:
-            typer.echo(f'Hash skipped (data file not found): {data_path}')
-    prev_raw = meta['isNextVersionOf']
+            # fileLocation is the directory holding the data file, so the path to the
+            # file itself is always this join.
+            data_path = Path(str(file_location).strip()) / str(file_name).strip()
+            if data_path.exists():
+                hash_sum = calculate_hashsum(file_path=data_path)
+            else:
+                typer.echo(f'Hash skipped (data file not found): {data_path}')
+    prev_raw = meta.get('isNextVersionOf')
     is_next_version_of = None
     if not pd.isna(prev_raw):
         if isinstance(prev_raw, str):
@@ -985,14 +931,23 @@ def make_json(meta: Series, dataset_type: DatasetType = 'spatioTemporal'):
                 is_next_version_of = stripped
         else:
             is_next_version_of = prev_raw
+    contributors_raw = meta.get('contributorURI')
+    # Every object the portal returns reports contributors as a list, empty rather than
+    # null, so a blank or absent cell means "no contributors" instead of "unknown".
+    if _is_blank(contributors_raw):
+        contributors = []
+    elif isinstance(contributors_raw, str):
+        contributors = json.loads(contributors_raw)
+    else:
+        contributors = contributors_raw
     production = {
-        'creator': meta['creatorURI'],
-        'contributors': json.loads(meta['contributorURI']),
-        'hostOrganization': meta['hostOrganizationURI'],
-        'comment': None if pd.isna(meta['comment']) else meta['comment'],
+        'creator': meta.get('creatorURI'),
+        'contributors': contributors,
+        'hostOrganization': meta.get('hostOrganizationURI'),
+        'comment': None if _is_blank(meta.get('comment')) else meta.get('comment'),
         'sources': [],
         'documentation': documentation,
-        'creationDate': meta['created'],
+        'creationDate': meta.get('created'),
     }
     if dataset_type == 'stationTimeSeries':
         station = meta.get('stationURI')
@@ -1031,8 +986,8 @@ def make_json(meta: Series, dataset_type: DatasetType = 'spatioTemporal'):
         acquisition_interval = None
         if not _is_blank(meta.get('startCov')) and not _is_blank(meta.get('stopCov')):
             acquisition_interval = {
-                'start': meta['startCov'],
-                'stop': meta['stopCov'],
+                'start': meta.get('startCov'),
+                'stop': meta.get('stopCov'),
             }
         specific_info: dict[str, Any] = {
             'station': station,
@@ -1045,13 +1000,13 @@ def make_json(meta: Series, dataset_type: DatasetType = 'spatioTemporal'):
         }
     else:
         specific_info = {
-            'title': meta['title'],
+            'title': meta.get('title'),
             'description': description,
             'spatial': spatial,
             'temporal': {
                 'interval': {
-                    'start': meta['startCov'],
-                    'stop': meta['stopCov'],
+                    'start': meta.get('startCov'),
+                    'stop': meta.get('stopCov'),
                 },
                 'resolution': None if pd.isna(meta.get('resolution')) else meta.get('resolution'),
             },
@@ -1065,23 +1020,33 @@ def make_json(meta: Series, dataset_type: DatasetType = 'spatioTemporal'):
                 None
                 if pd.isna(meta.get('variablesToIngest'))
                 or not meta.get('variablesToIngest')
-                else json.loads(meta['variablesToIngest'])
+                else json.loads(meta.get('variablesToIngest'))
             )
         }
+    keywords_raw = meta.get('keywords')
+    # Object-level keywords are optional. The portal's own payloads omit the key entirely
+    # for objects submitted without any, and the keywords a landing page displays may
+    # belong to the object specification rather than to the object.
+    if _is_blank(keywords_raw):
+        keywords = None
+    elif isinstance(keywords_raw, str):
+        keywords = json.loads(keywords_raw)
+    else:
+        keywords = keywords_raw
     json_meta = dict({
-        'fileName': meta['fileName'],
+        'fileName': meta.get('fileName'),
         'hashSum': hash_sum,
         'isNextVersionOf': is_next_version_of,
-        'preExistingDoi': None if pd.isna(meta['doiURI']) else meta['doiURI'],
-        'objectSpecification': meta['objectSpecification'],
+        'preExistingDoi': None if _is_blank(meta.get('doiURI')) else meta.get('doiURI'),
+        'objectSpecification': meta.get('objectSpecification'),
         'references': {
-            'keywords': json.loads(meta['keywords']),
-            'licence': meta['licenseUrl'],
+            'keywords': keywords,
+            'licence': meta.get('licenseUrl'),
             'autodeprecateSameFilenameObjects': False,
             'duplicateFilenameAllowed': True,
         },
         'specificInfo': specific_info,
-        'submitterId': meta['submitterID'],
+        'submitterId': meta.get('submitterID'),
     })
     return _nan_to_none(json_meta)
 
