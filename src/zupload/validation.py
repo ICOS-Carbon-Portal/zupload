@@ -28,6 +28,11 @@ def _looks_like_hash(value: str) -> bool:
     )
 
 
+LANDING_URL_ISSUE = (
+    'isNextVersionOf is a landing page URL; the portal needs the object id'
+)
+
+
 _KNOWN_SPECS_NORM = {
     _normalise_scheme(value) for value in ALL_OBJECT_SPECS.values()
 }
@@ -245,9 +250,11 @@ def validate_row(
             if isinstance(parsed, list):
                 prev_values = [str(item).strip() for item in parsed]
         for value in prev_values:
-            if not (
-                value.startswith(('http://', 'https://')) or _looks_like_hash(value)
-            ):
+            # A landing page URL is the natural thing to paste, but the portal rejects
+            # it with HTTP 400: isNextVersionOf takes the object id or a full hashSum.
+            if value.startswith(('http://', 'https://')):
+                issues.append(('error', LANDING_URL_ISSUE))
+            elif not _looks_like_hash(value):
                 issues.append((
                     'warning',
                     'isNextVersionOf does not look like a URI or hash',
