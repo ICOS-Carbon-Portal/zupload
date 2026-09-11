@@ -38,7 +38,12 @@ from zupload.constants.organizations import (
 from zupload.constants.stations import CITIES_FOR_STATION
 from zupload.constants.upload_descriptions import CITIES_UPLOAD_DESCRIPTIONS
 from zupload.logs import RunLogger
-from zupload.validation import validate_columns, validate_dataframe
+from zupload.metadata_fetch import _object_id
+from zupload.validation import (
+    LANDING_URL_ISSUE,
+    validate_columns,
+    validate_dataframe,
+)
 
 
 app = typer.Typer(help='Upload data & metadata to the specific portal.')
@@ -62,6 +67,67 @@ def _is_blank(value: Any) -> bool:
     except (TypeError, ValueError):
         return False
     return not str(value).strip()
+
+
+def _ids_for_cell(value: Any) -> str | None:
+    """Rewrite an isNextVersionOf cell as object ids, or return None to leave it alone.
+
+    The portal rejects a landing page URL in isNextVersionOf with HTTP 400; it wants the
+    object id at the end of that URL. The cell shape is preserved: a single URI becomes
+    a single bare id, a JSON list of URIs stays a JSON list. A cell that already holds
+    ids is returned as None so the caller skips it and the workbook is left untouched.
+    """
+    raw = str(value).strip()
+    if raw.startswith('['):
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+        if not isinstance(parsed, list):
+            return None
+        items = [str(item).strip() for item in parsed]
+        if not any(item.startswith(('http://', 'https://')) for item in items):
+            return None
+        return json.dumps([_object_id(item) for item in items])
+    if not raw.startswith(('http://', 'https://')):
+        return None
+    return _object_id(raw)
+
+
+def _fix_next_version_ids(df, spreadsheet: str | Path) -> tuple[int, int, Any]:
+    """Rewrite landing page URLs in isNextVersionOf as object ids, in the spreadsheet.
+
+    Mirrors the --data-dir path: the DataFrame is corrected so the rest of the run sees
+    the fixed values, and the same cells are written back into the workbook. When there
+    is nothing to convert the workbook is not opened at all.
+    """
+    if 'isNextVersionOf' not in df.columns:
+        return 0, 0, df
+    updates: list[tuple[Any, str]] = []
+    for idx, value in df['isNextVersionOf'].items():
+        if _is_blank(value):
+            continue
+        fixed = _ids_for_cell(value)
+        if fixed is None:
+            continue
+        updates.append((idx, fixed))
+    if not updates:
+        return 0, 0, df
+    # A row selection hands back a slice, so copy before writing into it.
+    df = df.copy()
+    df['isNextVersionOf'] = df['isNextVersionOf'].astype(object)
+    for idx, fixed in updates:
+        df.at[idx, 'isNextVersionOf'] = fixed
+    wb = load_workbook(spreadsheet)
+    ws = wb['upload_meta']
+    headers = {cell.value: i for i, cell in enumerate(ws[1], start=1)}
+    column = headers.get('isNextVersionOf')
+    if column is None:
+        raise ValueError('isNextVersionOf column is missing from the upload_meta sheet')
+    for idx, fixed in updates:
+        ws.cell(row=idx + 2, column=column).value = fixed
+    wb.save(spreadsheet)
+    return len(updates), len({idx for idx, _ in updates}), df
 
 
 def _detect_dataset_type(df, envri_conf: EnvriConfig) -> DatasetType:
@@ -168,6 +234,11 @@ def validate(
             None,
             '--data-dir',
             help='Locate each data file by name under this directory, then fill in fileLocation and hashSum where resolvable and update the spreadsheet in place. A backup is written under ./logs/.'
+        ),
+        fix_ids: bool = typer.Option(
+            False,
+            '--fix-ids',
+            help='Convert landing page URLs in isNextVersionOf to the object ids the portal expects and update the spreadsheet in place. A backup is written under ./logs/.'
         )
 ):
     """Check upload_meta rows for metadata problems without uploading or changing the spreadsheet."""
@@ -184,12 +255,20 @@ def validate(
     resolved = 0
     ambiguous = 0
     not_found = 0
+    fixed_cells = 0
+    fixed_rows = 0
+    data_root: Path | None = None
+    run_logger: RunLogger | None = None
     if data_dir is not None:
         data_root = Path(data_dir)
         if not data_root.is_dir():
             typer.echo(f'--data-dir not found or not a directory: {data_dir}')
             raise typer.Exit(code=1)
+    # Both --data-dir and --fix-ids rewrite the workbook, so one logger covers the run:
+    # its before copy predates every edit and its after copy follows all of them.
+    if data_dir is not None or fix_ids:
         run_logger = RunLogger.start(spreadsheet=spreadsheet)
+    if data_root is not None:
         try:
             name_to_paths: dict[str, list[Path]] = {}
             for candidate in data_root.rglob('*'):
@@ -247,9 +326,19 @@ def validate(
             run_logger.finish(status='error', error=str(e))
             typer.echo(f'Failed to update spreadsheet: {e}')
             raise typer.Exit(code=1)
-        run_logger.finish(status='ok')
     if rows is not None:
         df = select_rows(df, rows)
+    if fix_ids:
+        # After the row selection, so --fix-ids touches only the rows asked for, and
+        # before validate_dataframe, so the same run reports the corrected values.
+        try:
+            fixed_cells, fixed_rows, df = _fix_next_version_ids(df, spreadsheet)
+        except Exception as e:
+            run_logger.finish(status='error', error=str(e))
+            typer.echo(f'Failed to update spreadsheet: {e}')
+            raise typer.Exit(code=1)
+    if run_logger is not None:
+        run_logger.finish(status='ok')
     results = validate_dataframe(
         df,
         dataset_type=dataset_type,
@@ -323,7 +412,6 @@ def validate(
                 f'0 of {considered} data files found under {data_dir}. '
                 'The spreadsheet was left unchanged.'
             )
-        typer.echo(f'Logs saved to {run_logger.run_dir}')
     else:
         found = 0
         missing = 0
@@ -350,6 +438,33 @@ def validate(
                 f'  zupload validate --spreadsheet {spreadsheet} '
                 '--data-dir <path to your data files>'
             )
+    if fix_ids:
+        if fixed_cells:
+            typer.echo(
+                f'isNextVersionOf: {fixed_cells} cell(s) in {fixed_rows} row(s) '
+                'converted to object ids; spreadsheet updated.'
+            )
+        else:
+            typer.echo(
+                'isNextVersionOf: no landing page URLs to convert. '
+                'The spreadsheet was left unchanged.'
+            )
+    else:
+        url_rows = sum(
+            1 for result in results
+            if any(message == LANDING_URL_ISSUE for _, message in result['issues'])
+        )
+        if url_rows:
+            typer.echo(
+                f'isNextVersionOf: {url_rows} row(s) hold a landing page URL '
+                'where the portal needs an object id'
+            )
+            typer.echo('To convert them in place, run:')
+            typer.echo(
+                f'  zupload validate --spreadsheet {spreadsheet} --fix-ids'
+            )
+    if run_logger is not None:
+        typer.echo(f'Logs saved to {run_logger.run_dir}')
 
 
 @app.callback(invoke_without_command=True)
