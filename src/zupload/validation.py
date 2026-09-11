@@ -45,7 +45,6 @@ REQUIRED_COLUMNS = [
     'stopCov',
     'creatorURI',
     'contributorURI',
-    'hostOrganizationURI',
     'created',
     'submitterID',
 ]
@@ -60,6 +59,9 @@ OPTIONAL_COLUMNS = [
     # make_json reads them with .get() and harvest omits columns the portal cannot fill.
     'keywords',
     'comment',
+    # Object-level host organization is optional too: the portal's own dtodownload
+    # payloads omit the hostOrganization key entirely for objects submitted without one.
+    'hostOrganizationURI',
 ]
 
 
@@ -124,13 +126,16 @@ def validate_row(
     # keywords is deliberately absent here. Object-level keywords are optional: the
     # portal's own objects routinely carry none, and the keywords a landing page shows
     # may come from the object specification rather than from the object itself.
+    # contributorURI is deliberately absent too, but for a different reason: the column
+    # stays required while its value does not. The portal's own payloads always carry a
+    # contributors list, yet it is often empty, so a blank cell is normal and make_json
+    # turns it into [].
     required_fields = [
         'fileName',
         'title',
         'objectSpecification',
         'submitterID',
         'created',
-        'contributorURI',
     ]
     if is_station:
         # StationTimeSeriesDto has no title field.
@@ -146,9 +151,11 @@ def validate_row(
                 'station is required; both stationURI and forStation are blank',
             ))
 
+    # hostOrganizationURI is deliberately absent here, for the same reason as keywords:
+    # object-level host organization is optional, and the portal's own dtodownload
+    # payloads omit the hostOrganization key entirely for objects submitted without one.
     expected_fields = [
         'creatorURI',
-        'hostOrganizationURI',
         'startCov',
         'stopCov',
     ]
