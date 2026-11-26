@@ -44,6 +44,7 @@ from zupload.logs import RunLogger
 from zupload.metadata_fetch import _object_id
 from zupload.validation import (
     LANDING_URL_ISSUE,
+    parse_coverage_geojson,
     parse_moratorium,
     validate_columns,
     validate_dataframe,
@@ -1034,12 +1035,20 @@ def make_json(meta: Series, dataset_type: DatasetType = 'spatioTemporal'):
     if not pd.isna(spatial_raw):
         if isinstance(spatial_raw, str):
             stripped = spatial_raw.strip()
-            if stripped.startswith(('http://', 'https://')):
+            if not stripped:
+                spatial = None
+            elif stripped.startswith(('http://', 'https://')):
                 spatial = stripped
             else:
                 spatial = json.loads(stripped)
         else:
             spatial = spatial_raw
+    geojson_raw = meta.get('coverageGeoJSON')
+    if spatial is None and not _is_blank(geojson_raw):
+        # The portal reads a JSON object here as a typed GeoFeature and a non-URI JSON
+        # string as plain GeoJSON, so plain GeoJSON has to travel as a string.
+        geojson = parse_coverage_geojson(geojson_raw)
+        spatial = json.dumps(geojson, separators=(',', ':'))
     documentation = None
     documentation_uri = meta.get('documentationURI')
     if not pd.isna(documentation_uri):

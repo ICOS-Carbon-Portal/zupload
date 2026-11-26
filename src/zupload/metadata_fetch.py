@@ -30,6 +30,9 @@ from zupload.validation import (
 
 REQUEST_TIMEOUT = 30
 
+# Excel refuses to store more than this many characters in one cell.
+EXCEL_CELL_LIMIT = 32767
+
 # The portal's own name for each specificInfo branch, used only as a fallback
 # confirmation when the DataObjectDto's shape is inconclusive.
 DATASET_TYPE_BY_SPECIFIC_TYPE: dict[str, DatasetType] = {
@@ -51,6 +54,7 @@ BASE_COLUMNS = [
     'startCov',
     'stopCov',
     'coverageURI',
+    'coverageGeoJSON',
     'creatorURI',
     'contributorURI',
     'hostOrganizationURI',
@@ -241,6 +245,9 @@ def dto_to_row(dto: dict, obj_json: dict | None, landing_uri: str) -> dict[str, 
         # This inverts make_json, which reduces the URI to its last path segment.
         put('documentationURI', f'{host}/objects/{str(documentation).strip()}')
     put('coverageURI', _spatial_to_cell(specific_info.get('spatial')))
+    geojson = coverage_geojson(dto)
+    if geojson is not None and len(geojson) <= EXCEL_CELL_LIMIT:
+        put('coverageGeoJSON', geojson)
     if 'variables' in specific_info:
         # The dto already holds the submittable list of names, so prefer it: the rich
         # record reports what was actually ingested rather than what the upload asked
@@ -283,6 +290,17 @@ def dto_to_row(dto: dict, obj_json: dict | None, landing_uri: str) -> dict[str, 
     return row
 
 
+def coverage_geojson(dto: dict) -> str | None:
+    """Return the plain GeoJSON text dtodownload reports for the spatial coverage."""
+    spatial = (dto.get('specificInfo') or {}).get('spatial')
+    if not isinstance(spatial, dict):
+        return None
+    geojson = spatial.get('geoJson')
+    if is_blank(geojson):
+        return None
+    return str(geojson).strip()
+
+
 def values_equal(sheet_value: Any, portal_value: Any) -> bool:
     """Return True when a spreadsheet cell already says what the portal says.
 
@@ -307,7 +325,22 @@ def values_equal(sheet_value: Any, portal_value: Any) -> bool:
         or _hashes_equal(left, right)
         or _instants_equal(left, right)
         or _uris_equal(left, right)
+        or _json_objects_equal(left, right)
     )
+
+
+def _json_objects_equal(left: str, right: str) -> bool:
+    """Return True when both texts parse to the same JSON object.
+
+    GeoJSON is the case this exists for: whitespace, key order and -15 against -15.0
+    must not count as a difference.
+    """
+    if not (left.startswith('{') and right.startswith('{')):
+        return False
+    try:
+        return json.loads(left) == json.loads(right)
+    except ValueError:
+        return False
 
 
 def _add_rich_record_fields(

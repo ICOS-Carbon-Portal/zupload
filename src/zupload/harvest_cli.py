@@ -18,7 +18,9 @@ from openpyxl import Workbook, load_workbook
 from zupload.cli_shared import resolve_spreadsheet, select_rows
 from zupload.logs import RunLogger
 from zupload.metadata_fetch import (
+    EXCEL_CELL_LIMIT,
     column_order,
+    coverage_geojson,
     detect_dataset_type,
     dto_to_row,
     fetch_dto,
@@ -193,6 +195,7 @@ def _harvest(spreadsheet: Path, rows: str | None, overwrite: bool, dry_run: bool
         obj_json = fetch_object_json(landing_uri)
         dataset_type = detect_dataset_type(dto, obj_json)
         harvested = dto_to_row(dto=dto, obj_json=obj_json, landing_uri=landing_uri)
+        _warn_long_geojson(dto, f'Row {sheet_row}')
         row_filled, row_overwritten, row_conflicts = _plan_row(
             sheet_row=sheet_row,
             row=row,
@@ -291,6 +294,16 @@ def _generate(landing_uris: list[str], output: Path, dry_run: bool) -> None:
         typer.echo('Fill in fileLocation and any blank cells the portal could not supply, then upload with zupload.')
 
 
+def _warn_long_geojson(dto: dict, label: str) -> None:
+    """Say so when dto_to_row left coverageGeoJSON out because Excel cannot hold it."""
+    geojson = coverage_geojson(dto)
+    if geojson is not None and len(geojson) > EXCEL_CELL_LIMIT:
+        typer.echo(
+            f'{label}: coverageGeoJSON skipped, {len(geojson)} characters is over the '
+            f'Excel cell limit of {EXCEL_CELL_LIMIT}'
+        )
+
+
 def _harvest_one(landing_uri: str) -> tuple[dict[str, Any], str | None, bool]:
     """Fetch one object, returning its cells, its dataset type, and whether the fetch worked.
 
@@ -311,6 +324,7 @@ def _harvest_one(landing_uri: str) -> tuple[dict[str, Any], str | None, bool]:
     dataset_type = detect_dataset_type(dto, obj_json)
     record = dto_to_row(dto=dto, obj_json=obj_json, landing_uri=landing_uri)
     record['landingPageURI'] = landing_uri
+    _warn_long_geojson(dto, landing_uri)
     typer.echo(
         f'{dto.get("fileName") or landing_uri} [{dataset_type or "unknown dataset type"}]: '
         f'{len(record) - 1} cell(s) from the portal'

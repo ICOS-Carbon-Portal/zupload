@@ -55,6 +55,20 @@ def parse_moratorium(value: Any) -> pd.Timestamp | None:
     return parsed
 
 
+def parse_coverage_geojson(raw: Any) -> dict:
+    """Parse a coverageGeoJSON cell, which must hold a JSON object with a "type" key.
+
+    Raises ValueError otherwise, so make_json and validate reject the same cells.
+    """
+    try:
+        parsed = json.loads(str(raw).strip())
+    except (TypeError, ValueError) as e:
+        raise ValueError(f'coverageGeoJSON is not valid JSON: {e}') from e
+    if not isinstance(parsed, dict) or 'type' not in parsed:
+        raise ValueError('coverageGeoJSON must be a JSON object with a "type" key')
+    return parsed
+
+
 REQUIRED_COLUMNS = [
     'fileName',
     'fileLocation',
@@ -75,6 +89,8 @@ REQUIRED_COLUMNS = [
 OPTIONAL_COLUMNS = [
     'abstract/description',
     'coverageURI',
+    # Plain GeoJSON text, used for the spatial coverage only when coverageURI is blank.
+    'coverageGeoJSON',
     'documentationURI',
     'hashSum',
     # Both are optional in the payload, so an absent column is not a schema problem:
@@ -223,6 +239,21 @@ def validate_row(
                     'error',
                     'coverageURI is neither a URI nor valid JSON'
                 ))
+
+    if (
+        is_spatiotemporal
+        and is_blank(row.get('coverageURI'))
+        and is_blank(row.get('coverageGeoJSON'))
+    ):
+        # SpatioTemporalDto's spatial field is not optional, so the portal rejects
+        # an upload that carries neither form of coverage.
+        issues.append(('error', 'coverageURI or coverageGeoJSON is required'))
+
+    if not is_blank(row.get('coverageGeoJSON')):
+        try:
+            parse_coverage_geojson(row.get('coverageGeoJSON'))
+        except ValueError:
+            issues.append(('error', 'coverageGeoJSON is not valid GeoJSON'))
 
     if not is_blank(row.get('numRows')):
         num_rows_raw = str(row.get('numRows')).strip()
