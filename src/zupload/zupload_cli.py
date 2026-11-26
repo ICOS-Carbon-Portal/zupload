@@ -134,8 +134,11 @@ def _fix_next_version_ids(df, spreadsheet: str | Path) -> tuple[int, int, Any]:
     return len(updates), len({idx for idx, _ in updates}), df
 
 
-def _detect_dataset_type(df, envri_conf: EnvriConfig) -> DatasetType:
-    """Detect the specificInfo shape once per run from the first object specification."""
+def _detect_dataset_type(df, envri_conf: EnvriConfig) -> DatasetType | None:
+    """Detect the specificInfo shape once per run from the first object specification.
+
+    Returns None when the type cannot be confirmed, so callers never guess it.
+    """
     spec = None
     if 'objectSpecification' in df.columns:
         for value in df['objectSpecification']:
@@ -143,22 +146,19 @@ def _detect_dataset_type(df, envri_conf: EnvriConfig) -> DatasetType:
                 spec = str(value).strip()
                 break
     if spec is None:
-        typer.echo('No objectSpecification found; assuming spatioTemporal metadata.')
-        return 'spatioTemporal'
+        typer.echo('No objectSpecification found; dataset type unknown.')
+        return None
     try:
         dataset_type = get_dataset_type(
             object_spec=spec,
             portal=_portal_display_name(envri_conf.envri)
         )
     except Exception as e:
-        typer.echo(f'Dataset type lookup failed ({e}); assuming spatioTemporal metadata.')
-        return 'spatioTemporal'
+        typer.echo(f'Dataset type lookup failed ({e}); dataset type unknown.')
+        return None
     if dataset_type is None:
-        typer.echo(
-            'Dataset type unknown for the object specification; '
-            'assuming spatioTemporal metadata.'
-        )
-        return 'spatioTemporal'
+        typer.echo('Portal did not resolve the object specification; dataset type unknown.')
+        return None
     typer.echo(f'Dataset type: {dataset_type}')
     return dataset_type
 
@@ -255,6 +255,8 @@ def validate(
         envri_conf = ICOS_CONFIG
     known_specs = _resolve_known_specs(df, envri_conf)
     dataset_type = _detect_dataset_type(df, envri_conf)
+    if dataset_type is None:
+        typer.echo('Dataset type unknown; type-specific checks skipped.')
     schema_issues = validate_columns(df, dataset_type=dataset_type)
     resolved = 0
     ambiguous = 0
@@ -534,6 +536,19 @@ def main(
         if rows is not None:
             df = select_rows(df, rows)
         dataset_type = _detect_dataset_type(df, envri_conf)
+        if dataset_type is None:
+            # Building spatioTemporal metadata for a station object (or the reverse)
+            # would upload the wrong specificInfo, so an unknown type stops the run.
+            message = (
+                'Dataset type unknown; cannot build the metadata. '
+                'Check objectSpecification and the portal connection.'
+            )
+            typer.echo(message)
+            run_logger.finish(status='error', error=message)
+            # Finished here with the real message; clearing the logger stops the
+            # handler below from rewriting run.txt with the empty text of Exit.
+            run_logger = None
+            raise typer.Exit(code=1)
         for idx, row in df.iterrows():
             typer.echo(f'Row {idx + 2}: {row["fileName"]}')
             # Read the sheet's own hashSum before make_json so a hash it computes on

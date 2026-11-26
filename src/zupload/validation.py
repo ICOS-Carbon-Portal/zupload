@@ -110,10 +110,12 @@ def validate_columns(df, dataset_type: str | None = None) -> list[tuple[str, str
     for column in REQUIRED_COLUMNS:
         if column not in df.columns:
             issues.append(('error', f'{column} column is missing from the upload_meta sheet'))
+    # An unknown dataset type (None) adds neither type-specific set: without a
+    # confirmed type there is no basis for warning about those columns.
     optional_columns = list(OPTIONAL_COLUMNS)
-    if dataset_type in (None, 'stationTimeSeries'):
+    if dataset_type == 'stationTimeSeries':
         optional_columns += STATION_OPTIONAL_COLUMNS
-    if dataset_type in (None, 'spatioTemporal'):
+    if dataset_type == 'spatioTemporal':
         optional_columns += SPATIOTEMPORAL_OPTIONAL_COLUMNS
     for column in optional_columns:
         if column not in df.columns:
@@ -131,7 +133,10 @@ def validate_row(
 ) -> list[tuple[str, str]]:
     """Check one upload_meta row and return issues without raising."""
     issues: list[tuple[str, str]] = []
+    # dataset_type None means unknown: only the general checks run, and every
+    # type-specific check below is skipped rather than guessed.
     is_station = dataset_type == 'stationTimeSeries'
+    is_spatiotemporal = dataset_type == 'spatioTemporal'
 
     def is_blank(value: Any) -> bool:
         if pd.isna(value):
@@ -152,8 +157,8 @@ def validate_row(
         'submitterID',
         'created',
     ]
-    if is_station:
-        # StationTimeSeriesDto has no title field.
+    if not is_spatiotemporal:
+        # StationTimeSeriesDto has no title field, and an unknown type cannot say.
         required_fields.remove('title')
     for field in required_fields:
         if field in row and is_blank(row.get(field)):
@@ -174,8 +179,9 @@ def validate_row(
         'startCov',
         'stopCov',
     ]
-    if is_station:
-        # acquisitionInterval is optional in the station branch.
+    if not is_spatiotemporal:
+        # acquisitionInterval is optional in the station branch, and an unknown
+        # type cannot say whether temporal coverage is expected.
         expected_fields.remove('startCov')
         expected_fields.remove('stopCov')
     for field in expected_fields:
