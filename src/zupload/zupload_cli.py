@@ -44,6 +44,7 @@ from zupload.logs import RunLogger
 from zupload.metadata_fetch import _object_id
 from zupload.validation import (
     LANDING_URL_ISSUE,
+    parse_moratorium,
     validate_columns,
     validate_dataframe,
 )
@@ -997,6 +998,20 @@ def _nan_to_none(obj):
     return obj
 
 
+def _moratorium_value(raw: Any) -> str | None:
+    """Return a moratorium cell as YYYY-MM-DDTHH:MM:SSZ, or None when it is blank.
+
+    An unreadable value raises instead of being dropped, because leaving the key out
+    publishes the data straight away, with no embargo at all.
+    """
+    if _is_blank(raw):
+        return None
+    parsed = parse_moratorium(raw)
+    if parsed is None:
+        raise ValueError(f'moratorium is not a valid date: {raw!r}')
+    return parsed.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
 def make_json(meta: Series, dataset_type: DatasetType = 'spatioTemporal'):
     description = meta.get('abstract/description', '')
     spatial_raw = meta.get('coverageURI')
@@ -1166,6 +1181,11 @@ def make_json(meta: Series, dataset_type: DatasetType = 'spatioTemporal'):
         'specificInfo': specific_info,
         'submitterId': meta.get('submitterID'),
     })
+    moratorium = _moratorium_value(meta.get('moratorium'))
+    if moratorium is not None:
+        # Left out entirely when blank rather than sent as null, matching the portal's
+        # own payloads for objects without an embargo.
+        json_meta['references']['moratorium'] = moratorium
     return _nan_to_none(json_meta)
 
 

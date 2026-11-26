@@ -38,6 +38,23 @@ _KNOWN_SPECS_NORM = {
 }
 
 
+def parse_moratorium(value: Any) -> pd.Timestamp | None:
+    """Return a moratorium cell as a UTC Timestamp, or None when it is not a date.
+
+    A value without a time zone, including a bare date, is taken as UTC, so
+    2027-04-01 means midnight UTC. Numbers are refused rather than read as an offset
+    from 1970, which is what pandas would otherwise make of them.
+    """
+    if isinstance(value, (bool, int, float)):
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+    parsed = pd.to_datetime(value, errors='coerce', utc=True)
+    if pd.isna(parsed):
+        return None
+    return parsed
+
+
 REQUIRED_COLUMNS = [
     'fileName',
     'fileLocation',
@@ -67,6 +84,8 @@ OPTIONAL_COLUMNS = [
     # Object-level host organization is optional too: the portal's own dtodownload
     # payloads omit the hostOrganization key entirely for objects submitted without one.
     'hostOrganizationURI',
+    # An embargo date. A blank cell means the object is published at once.
+    'moratorium',
 ]
 
 
@@ -263,6 +282,16 @@ def validate_row(
     if 'startCov' in parsed_dates and 'stopCov' in parsed_dates:
         if parsed_dates['startCov'] > parsed_dates['stopCov']:
             issues.append(('warning', 'startCov is after stopCov'))
+
+    moratorium_raw = row.get('moratorium')
+    if not is_blank(moratorium_raw):
+        # An error rather than a warning: make_json refuses an unreadable moratorium,
+        # because uploading without it would publish the data with no embargo.
+        moratorium = parse_moratorium(moratorium_raw)
+        if moratorium is None:
+            issues.append(('error', 'moratorium is not a valid date'))
+        elif moratorium < pd.Timestamp.now(tz='UTC'):
+            issues.append(('warning', 'moratorium is in the past; it has no effect'))
 
     if is_blank(row.get('hashSum')):
         if not is_blank(row.get('fileLocation')) and not is_blank(row.get('fileName')):

@@ -57,6 +57,7 @@ BASE_COLUMNS = [
     'keywords',
     'licenseName',
     'licenseUrl',
+    'moratorium',
     'abstract/description',
     'comment',
     'submitterID',
@@ -225,6 +226,9 @@ def dto_to_row(dto: dict, obj_json: dict | None, landing_uri: str) -> dict[str, 
         # promote spec keywords into object keywords on the next upload.
         put('keywords', json.dumps(references['keywords']))
     put('licenseUrl', references.get('licence'))
+    # Written through as the portal reports it, an ISO UTC string ending in Z, which
+    # is exactly the form make_json normalises the cell back into.
+    put('moratorium', references.get('moratorium'))
     put('creatorURI', production.get('creator'))
     if production.get('contributors') is not None:
         put('contributorURI', json.dumps(production['contributors']))
@@ -290,6 +294,10 @@ def values_equal(sheet_value: Any, portal_value: Any) -> bool:
         return True
     if is_blank(sheet_value) or is_blank(portal_value):
         return False
+    if isinstance(sheet_value, dt) and sheet_value.tzinfo is None:
+        # A date typed into Excel carries no time zone. make_json reads such a cell as
+        # UTC, so compare it as UTC too, or it never matches the portal's Z string.
+        sheet_value = sheet_value.isoformat() + '+00:00'
     left = str(sheet_value).strip()
     right = str(portal_value).strip()
     if left == right:
